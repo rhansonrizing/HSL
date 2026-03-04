@@ -1,0 +1,569 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Postmile → AllRoads Translator</title>
+  <script src="config.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #f0f2f5;
+      min-height: 100vh;
+      display: flex;
+      align-items: flex-start;
+      justify-content: center;
+      padding: 2.5rem 1rem;
+    }
+
+    .card {
+      background: #fff;
+      border-radius: 8px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.1), 0 4px 16px rgba(0,0,0,0.06);
+      padding: 2rem;
+      width: 100%;
+      max-width: 480px;
+    }
+
+    h1 {
+      font-size: 1.2rem;
+      font-weight: 600;
+      color: #111827;
+      margin-bottom: 1.25rem;
+    }
+
+    .auth-bar {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.75rem;
+      color: #6b7280;
+      margin-bottom: 1.25rem;
+    }
+
+    .auth-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #d1d5db;
+      flex-shrink: 0;
+    }
+    .auth-dot.ok { background: #22c55e; }
+
+    .form-group { margin-bottom: 0.875rem; }
+
+    label {
+      display: block;
+      font-size: 0.8125rem;
+      font-weight: 500;
+      color: #374151;
+      margin-bottom: 0.3rem;
+    }
+
+    select, input[type="text"] {
+      display: block;
+      width: 100%;
+      padding: 0.45rem 0.6rem;
+      font-size: 0.875rem;
+      color: #111827;
+      background: #fff;
+      border: 1px solid #d1d5db;
+      border-radius: 4px;
+      transition: border-color 0.12s, box-shadow 0.12s;
+    }
+    select:focus, input[type="text"]:focus {
+      outline: none;
+      border-color: #3b82f6;
+      box-shadow: 0 0 0 3px rgba(59,130,246,0.15);
+    }
+
+    .row   { display: grid; gap: 0.75rem; }
+    .row-2 { grid-template-columns: 1fr 1fr; }
+    .row-3 { grid-template-columns: 1fr 1fr 1fr; }
+
+    .btn-primary {
+      display: block;
+      width: 100%;
+      padding: 0.6rem 1rem;
+      margin-top: 1.1rem;
+      background: #2563eb;
+      color: #fff;
+      font-size: 0.875rem;
+      font-weight: 600;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: background 0.12s;
+    }
+    .btn-primary:hover:not(:disabled) { background: #1d4ed8; }
+    .btn-primary:disabled { background: #93c5fd; cursor: not-allowed; }
+
+    .result-box {
+      margin-top: 1.1rem;
+      padding: 0.875rem 1rem;
+      border-radius: 4px;
+      font-size: 0.875rem;
+    }
+    .result-box.success { background: #f0fdf4; border: 1px solid #86efac; }
+    .result-box.error   { background: #fef2f2; border: 1px solid #fca5a5; color: #991b1b; }
+
+    .result-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 1rem;
+    }
+    .result-row + .result-row { margin-top: 0.45rem; }
+
+    .result-lbl {
+      font-size: 0.7rem;
+      font-weight: 700;
+      color: #6b7280;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      white-space: nowrap;
+    }
+
+    .result-val {
+      font-family: 'Cascadia Code', 'Fira Code', Consolas, monospace;
+      font-size: 0.9375rem;
+      color: #111827;
+      word-break: break-all;
+    }
+
+    .result-val-wrap {
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+    }
+
+    .copy-btn {
+      background: none;
+      border: none;
+      cursor: pointer;
+      padding: 0;
+      color: #9ca3af;
+      flex-shrink: 0;
+      line-height: 1;
+      transition: color 0.12s;
+    }
+    .copy-btn:hover { color: #3b82f6; }
+    .copy-btn.copied { color: #22c55e; }
+
+    #loginPrompt {
+      text-align: center;
+      color: #6b7280;
+      font-size: 0.875rem;
+      padding: 0.5rem 0;
+    }
+  </style>
+</head>
+<body>
+<div class="card">
+  <h1>Postmile &#8594; AllRoads Translator</h1>
+
+  <div class="auth-bar">
+    <span class="auth-dot" id="authDot"></span>
+    <span id="authLabel">Checking authentication&hellip;</span>
+  </div>
+
+  <!-- Fallback login prompt (auto-redirect should handle most cases) -->
+  <div id="loginPrompt" style="display:none;">
+    <p>Authentication required to use this tool.</p>
+    <button class="btn-primary" onclick="login()" style="width:auto;margin:1rem auto 0;">
+      Sign In with ArcGIS
+    </button>
+  </div>
+
+  <!-- Main form (shown after authentication) -->
+  <form id="appForm" style="display:none;" onsubmit="return false;">
+
+    <div class="form-group">
+      <label for="county">County</label>
+      <select id="county"><!-- populated by JS --></select>
+    </div>
+
+    <div class="row row-2">
+      <div class="form-group">
+        <label for="routeNum">Route Number</label>
+        <input type="text" id="routeNum" placeholder="e.g. 80" autocomplete="off">
+      </div>
+      <div class="form-group">
+        <label for="routeSuffix">Route Suffix</label>
+        <select id="routeSuffix">
+          <option value=".">.</option>
+          <option value="S">S</option>
+          <option value="U">U</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="row row-3">
+      <div class="form-group">
+        <label for="pmPrefix">PM Prefix</label>
+        <select id="pmPrefix">
+          <option value=".">.</option>
+          <option value="C">C</option>
+          <option value="D">D</option>
+          <option value="G">G</option>
+          <option value="H">H</option>
+          <option value="L">L</option>
+          <option value="M">M</option>
+          <option value="N">N</option>
+          <option value="R">R</option>
+          <option value="S">S</option>
+          <option value="T">T</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label for="pmSuffix">PM Suffix</label>
+        <select id="pmSuffix">
+          <option value=".">.</option>
+          <option value="R">R</option>
+          <option value="L">L</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label for="alignment">Alignment</label>
+        <select id="alignment">
+          <option value="R">R</option>
+          <option value="L">L</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label for="measure">Postmile Measure</label>
+      <input type="text" id="measure" placeholder="e.g. 12.123" autocomplete="off">
+    </div>
+
+    <button class="btn-primary" id="translateBtn" onclick="runTranslate()">Translate</button>
+
+    <div id="resultBox" style="display:none;" class="result-box"></div>
+  </form>
+</div>
+
+<script>
+  // ── In-memory token state (never persisted to storage) ────────────────────
+  let _token       = null;
+  let _tokenExpiry = null; // epoch ms
+
+  // ── County codes ──────────────────────────────────────────────────────────
+  // value: 3-char API code (dot-padded where needed)
+  // display: label shown in the dropdown (no trailing dot)
+  const COUNTY_CODES = [
+    {value:'ALA',display:'ALA'}, {value:'ALP',display:'ALP'}, {value:'AMA',display:'AMA'},
+    {value:'BUT',display:'BUT'}, {value:'CAL',display:'CAL'}, {value:'CC.',display:'CC' },
+    {value:'COL',display:'COL'}, {value:'DN.',display:'DN' }, {value:'ED.',display:'ED' },
+    {value:'FRE',display:'FRE'}, {value:'GLE',display:'GLE'}, {value:'HUM',display:'HUM'},
+    {value:'IMP',display:'IMP'}, {value:'INY',display:'INY'}, {value:'KER',display:'KER'},
+    {value:'KIN',display:'KIN'}, {value:'LA.',display:'LA' }, {value:'LAK',display:'LAK'},
+    {value:'LAS',display:'LAS'}, {value:'MAD',display:'MAD'}, {value:'MEN',display:'MEN'},
+    {value:'MER',display:'MER'}, {value:'MNO',display:'MNO'}, {value:'MOD',display:'MOD'},
+    {value:'MON',display:'MON'}, {value:'MPA',display:'MPA'}, {value:'MRN',display:'MRN'},
+    {value:'NAP',display:'NAP'}, {value:'NEV',display:'NEV'}, {value:'ORA',display:'ORA'},
+    {value:'PLA',display:'PLA'}, {value:'PLU',display:'PLU'}, {value:'RIV',display:'RIV'},
+    {value:'SAC',display:'SAC'}, {value:'SB.',display:'SB' }, {value:'SBD',display:'SBD'},
+    {value:'SBT',display:'SBT'}, {value:'SCL',display:'SCL'}, {value:'SCR',display:'SCR'},
+    {value:'SD.',display:'SD' }, {value:'SF.',display:'SF' }, {value:'SHA',display:'SHA'},
+    {value:'SIE',display:'SIE'}, {value:'SIS',display:'SIS'}, {value:'SJ.',display:'SJ' },
+    {value:'SLO',display:'SLO'}, {value:'SM.',display:'SM' }, {value:'SOL',display:'SOL'},
+    {value:'SON',display:'SON'}, {value:'STA',display:'STA'}, {value:'SUT',display:'SUT'},
+    {value:'TEH',display:'TEH'}, {value:'TRI',display:'TRI'}, {value:'TUL',display:'TUL'},
+    {value:'TUO',display:'TUO'}, {value:'VEN',display:'VEN'}
+  ];
+
+  // ── OAuth (ArcGIS implicit flow) ──────────────────────────────────────────
+
+  function login() {
+    const params = new URLSearchParams({
+      client_id:     CONFIG.oauthClientId,
+      response_type: 'token',
+      redirect_uri:  (window.location.origin + window.location.pathname).replace('127.0.0.1', 'localhost'),
+      expiration:    '120'
+    });
+    window.location.href = `${CONFIG.oauthAuthorizeUrl}?${params}`;
+  }
+
+  function tokenIsValid() {
+    if (!_token) return false;
+    if (_tokenExpiry && Date.now() >= _tokenExpiry) {
+      _token = null;
+      return false;
+    }
+    return true;
+  }
+
+  /** Parse key=value pairs from a URL hash string (with or without leading #). */
+  function parseHashParams(hash) {
+    const out = {};
+    hash.replace(/^#/, '').split('&').forEach(pair => {
+      const idx = pair.indexOf('=');
+      if (idx === -1) return;
+      out[decodeURIComponent(pair.slice(0, idx))] = decodeURIComponent(pair.slice(idx + 1));
+    });
+    return out;
+  }
+
+  function setAuthUI(authenticated) {
+    document.getElementById('authDot').className    = 'auth-dot' + (authenticated ? ' ok' : '');
+    document.getElementById('authLabel').textContent = authenticated ? 'Authenticated' : 'Not authenticated';
+    document.getElementById('appForm').style.display     = authenticated ? 'block' : 'none';
+    document.getElementById('loginPrompt').style.display = authenticated ? 'none'  : 'block';
+  }
+
+  function initAuth() {
+    // 1. Check URL hash for implicit-flow callback: #access_token=...&expires_in=...
+    if (window.location.hash) {
+      const hp = parseHashParams(window.location.hash);
+      if (hp.access_token) {
+        _token = hp.access_token;
+        if (hp.expires_in) {
+          _tokenExpiry = Date.now() + parseInt(hp.expires_in, 10) * 1000;
+        }
+        // Remove token from URL to prevent leakage on refresh or link-sharing
+        history.replaceState(null, '', window.location.pathname + window.location.search);
+        setAuthUI(true);
+        return;
+      }
+    }
+
+    // 2. No token in hash — redirect to ArcGIS login
+    login();
+  }
+
+  // ── Input population & validation ─────────────────────────────────────────
+
+  function populateCounties() {
+    const sel = document.getElementById('county');
+    COUNTY_CODES.forEach(({value, display}) => {
+      const opt = document.createElement('option');
+      opt.value       = value;   // 3-char API value (e.g. 'LA.')
+      opt.textContent = display; // user-facing label (e.g. 'LA')
+      sel.appendChild(opt);
+    });
+  }
+
+  function setupValidation() {
+    // Route number: digits only, max 3 characters
+    const routeInput = document.getElementById('routeNum');
+    routeInput.addEventListener('input', () => {
+      routeInput.value = routeInput.value.replace(/\D/g, '').slice(0, 3);
+    });
+
+    // Postmile measure: digits + at most one decimal point, max 3 decimal places
+    const measureInput = document.getElementById('measure');
+    measureInput.addEventListener('input', () => {
+      let v = measureInput.value.replace(/[^0-9.]/g, '');
+      const dotIdx = v.indexOf('.');
+      if (dotIdx !== -1) {
+        v = v.slice(0, dotIdx + 1) + v.slice(dotIdx + 1).replace(/\./g, '');
+        if (v.length > dotIdx + 4) v = v.slice(0, dotIdx + 4);
+      }
+      measureInput.value = v;
+    });
+  }
+
+  // ── Translation ───────────────────────────────────────────────────────────
+
+  async function runTranslate() {
+    if (!tokenIsValid()) { login(); return; }
+
+    const county      = document.getElementById('county').value;      // already 3 chars
+    const routeNum    = document.getElementById('routeNum').value.trim();
+    const routeSuffix = document.getElementById('routeSuffix').value;
+    const pmPrefix    = document.getElementById('pmPrefix').value;
+    const pmSuffix    = document.getElementById('pmSuffix').value;
+    const alignment   = document.getElementById('alignment').value;
+    const measureRaw  = document.getElementById('measure').value.trim();
+
+    if (!routeNum) {
+      showResult('error', 'Please enter a route number.');
+      return;
+    }
+    if (!measureRaw) {
+      showResult('error', 'Please enter a postmile measure.');
+      return;
+    }
+    const measure = parseFloat(measureRaw);
+    if (isNaN(measure)) {
+      showResult('error', 'Postmile measure must be a number.');
+      return;
+    }
+
+    // Build route ID (always 12 chars):
+    //   [County×3] + [Route×3] + [RouteSuffix×1] + [PMPrefix×1] + [PMSuffix×1] + [Alignment×1]
+    const routeId = county + routeNum.padStart(3, '0') + routeSuffix + pmPrefix + pmSuffix + alignment;
+
+    const btn = document.getElementById('translateBtn');
+    btn.disabled    = true;
+    btn.textContent = 'Translating\u2026';
+    clearResult();
+
+    try {
+      // POST with application/x-www-form-urlencoded body
+      const body = new URLSearchParams({
+        locations:              JSON.stringify([{ routeId, measure }]),
+        targetNetworkLayerIds:  JSON.stringify([4]),
+        f:                      'json',
+        token:                  _token
+      });
+
+      console.log('[translate] routeId:', routeId, '| measure:', measure);
+      console.log('[translate] POST body:', body.toString());
+
+      let resp;
+      try {
+        resp = await fetch(`${CONFIG.mapServiceUrl}/exts/LRServer/networkLayers/3/translate`, {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body:    body.toString()
+        });
+      } catch (e) {
+        console.error('[translate] fetch error:', e);
+        showResult('error', 'Network error: ' + e.message);
+        return;
+      }
+
+      if (!resp.ok) {
+        console.error('[translate] HTTP error:', resp.status, resp.statusText);
+        showResult('error', `HTTP ${resp.status}: ${resp.statusText}`);
+        return;
+      }
+
+      let data;
+      try {
+        data = await resp.json();
+      } catch (e) {
+        console.error('[translate] JSON parse error:', e);
+        showResult('error', 'Invalid JSON response');
+        return;
+      }
+
+      console.log('[translate] response:', JSON.stringify(data, null, 2));
+
+      // Handle token-expired errors returned by the server
+      if (data.error) {
+        const code = data.error.code;
+        if (code === 498 || code === 499) {
+          _token = null;
+          login();
+          return;
+        }
+        showResult('error', `API error ${code}: ${data.error.message}`);
+        return;
+      }
+
+      // Parse translated locations
+      // Response shape: { locations: [{ routeId, measure, translatedLocations: [...] }] }
+      const locations = data.locations;
+      if (!Array.isArray(locations) || locations.length === 0) {
+        console.warn('[translate] no locations in response', data);
+        showResult('error', 'No match found (empty locations)');
+        return;
+      }
+
+      const locs = locations[0]?.translatedLocations;
+      if (!Array.isArray(locs) || locs.length === 0) {
+        console.warn('[translate] no translatedLocations', locations[0]);
+        showResult('error', 'No match found (no translatedLocations)');
+        return;
+      }
+
+      console.log('[translate] translatedLocations:', locs);
+
+      // Keep only results with a valid routeId, numeric measure, and OK status
+      const valid = locs.filter(l =>
+        l.routeId != null &&
+        l.measure != null &&
+        (!l.status || l.status === 'esriLocatingOK' || l.status === 'esriLocatingMultipleLocation')
+      );
+
+      if (valid.length === 0) {
+        console.warn('[translate] all locs filtered out, statuses:', locs.map(l => l.status));
+        showResult('error', `No match found (status: ${[...new Set(locs.map(l => l.status))].join(', ')})`);
+        return;
+      }
+
+      // Select the result with the greatest (downstream) measure
+      const best = valid.reduce((a, b) => b.measure > a.measure ? b : a);
+
+      showResult('success', null, best.routeId, Number(best.measure).toFixed(6));
+
+    } finally {
+      btn.disabled    = false;
+      btn.textContent = 'Translate';
+    }
+  }
+
+  // ── Result display ────────────────────────────────────────────────────────
+
+  function clearResult() {
+    const box = document.getElementById('resultBox');
+    box.style.display = 'none';
+    box.className     = 'result-box';
+    box.innerHTML     = '';
+  }
+
+  function showResult(type, message, routeId, measure) {
+    const box = document.getElementById('resultBox');
+    box.style.display = 'block';
+    box.className     = `result-box ${type}`;
+
+    if (type === 'success') {
+      const rId  = esc(String(routeId));
+      const mVal = esc(String(measure));
+      box.innerHTML =
+        `<div class="result-row">
+           <span class="result-lbl">Route</span>
+           <span class="result-val-wrap">
+             <span class="result-val">${rId}</span>
+             <button class="copy-btn" title="Copy" onclick="copyVal(this,'${rId}')">
+               <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                 <rect x="5" y="5" width="9" height="9" rx="1.5"/>
+                 <path d="M11 5V3a1.5 1.5 0 0 0-1.5-1.5H3A1.5 1.5 0 0 0 1.5 3v6.5A1.5 1.5 0 0 0 3 11h2"/>
+               </svg>
+             </button>
+           </span>
+         </div>
+         <div class="result-row">
+           <span class="result-lbl">Measure</span>
+           <span class="result-val-wrap">
+             <span class="result-val">${mVal}</span>
+             <button class="copy-btn" title="Copy" onclick="copyVal(this,'${mVal}')">
+               <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                 <rect x="5" y="5" width="9" height="9" rx="1.5"/>
+                 <path d="M11 5V3a1.5 1.5 0 0 0-1.5-1.5H3A1.5 1.5 0 0 0 1.5 3v6.5A1.5 1.5 0 0 0 3 11h2"/>
+               </svg>
+             </button>
+           </span>
+         </div>`;
+    } else {
+      box.textContent = message || 'No match found';
+    }
+  }
+
+  function copyVal(btn, text) {
+    navigator.clipboard.writeText(text).then(() => {
+      btn.classList.add('copied');
+      setTimeout(() => btn.classList.remove('copied'), 1500);
+    });
+  }
+
+  function esc(str) {
+    return str
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
+  // ── Bootstrap ─────────────────────────────────────────────────────────────
+  document.addEventListener('DOMContentLoaded', () => {
+    populateCounties();
+    setupValidation();
+    initAuth();
+  });
+</script>
+</body>
+</html>

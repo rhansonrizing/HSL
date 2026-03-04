@@ -1,0 +1,2235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Highway Sequence Listing</title>
+  <script src="config.js"></script>
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #f0f2f5;
+      min-height: 100vh;
+      display: flex;
+      align-items: flex-start;
+      justify-content: center;
+      padding: 2.5rem 1rem;
+    }
+
+    .card {
+      background: #fff;
+      border-radius: 8px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.1), 0 4px 16px rgba(0,0,0,0.06);
+      padding: 2rem;
+      width: 100%;
+      max-width: 1032px;
+      position: relative;
+    }
+
+    .caltrans-logo {
+      position: absolute;
+      top: 1.25rem;
+      left: 0;
+      height: 52px;
+      width: auto;
+    }
+
+    .page-header {
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 1.25rem;
+    }
+
+    h1 {
+      font-size: 1.8rem;
+      font-weight: 600;
+      color: #111827;
+      text-align: center;
+    }
+
+    .version-wrap, .ref-date-wrap {
+      position: absolute;
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+    .version-wrap  { right: 0; }
+    .ref-date-wrap { left:  0; }
+
+    .version-lbl, .ref-date-lbl {
+      font-size: 0.8rem;
+      font-weight: 500;
+      color: #6b7280;
+      white-space: nowrap;
+      margin-bottom: 0;
+      display: inline;
+    }
+
+    #versionSelect, #refDate {
+      width: auto;
+      font-size: 0.75rem;
+      padding: 0.25rem 0.4rem;
+    }
+
+    .auth-bar {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.75rem;
+      color: #6b7280;
+      margin-bottom: 1.25rem;
+    }
+
+    .auth-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #d1d5db;
+      flex-shrink: 0;
+    }
+    .auth-dot.ok { background: #22c55e; }
+
+    label {
+      display: block;
+      font-size: 0.8125rem;
+      font-weight: 500;
+      color: #374151;
+      margin-bottom: 0.3rem;
+    }
+
+    select, input[type="text"] {
+      display: block;
+      width: 100%;
+      padding: 0.45rem 0.5rem;
+      font-size: 0.8125rem;
+      color: #111827;
+      background: #fff;
+      border: 1px solid #d1d5db;
+      border-radius: 4px;
+      transition: border-color 0.12s, box-shadow 0.12s;
+    }
+    select:focus, input[type="text"]:focus {
+      outline: none;
+      border-color: #3b82f6;
+      box-shadow: 0 0 0 3px rgba(59,130,246,0.15);
+    }
+    input[type="text"]::placeholder { color: #c4c9d0; }
+
+    /* ── Measure section ──────────────────────────────────── */
+    .measure-section {
+      border: 1px solid #e5e7eb;
+      border-radius: 6px;
+      padding: 0.5rem 1rem 1rem;
+      margin-bottom: 0.875rem;
+    }
+
+    .section-hdr {
+      font-size: 0.75rem;
+      font-weight: 700;
+      color: #6b7280;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      padding: 0 0.3rem;
+    }
+
+    .fields-row {
+      display: grid;
+      grid-template-columns: 1.3fr 1fr 0.75fr 0.75fr 0.75fr 1.1fr;
+      gap: 0.6rem;
+      align-items: end;
+    }
+
+    .field-error {
+      display: none;
+      margin: 0.35rem 0 0;
+      font-size: 0.75rem;
+      font-weight: 700;
+      color: #dc2626;
+      text-align: center;
+    }
+
+    /* ── Buttons ──────────────────────────────────────────── */
+    .btn-primary {
+      display: block;
+      width: 100%;
+      padding: 0.6rem 1rem;
+      margin-top: 0.25rem;
+      background: #2563eb;
+      color: #fff;
+      font-size: 0.875rem;
+      font-weight: 600;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: background 0.12s;
+    }
+    .btn-primary:hover:not(:disabled) { background: #1d4ed8; }
+    .btn-primary:disabled { background: #93c5fd; cursor: not-allowed; }
+
+    /* ── Results ──────────────────────────────────────────── */
+    .results-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.75rem;
+      margin-top: 1rem;
+    }
+
+    .result-box {
+      padding: 0.875rem 1rem;
+      border-radius: 4px;
+      font-size: 0.875rem;
+    }
+    .result-box.success { background: #f0fdf4; border: 1px solid #86efac; }
+    .result-box.error   { background: #fef2f2; border: 1px solid #fca5a5; color: #991b1b; }
+
+    .result-section-hdr {
+      font-size: 0.7rem;
+      font-weight: 700;
+      color: #9ca3af;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      margin-bottom: 0.5rem;
+    }
+
+    .result-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 1rem;
+    }
+    .result-row + .result-row { margin-top: 0.45rem; }
+
+    .result-lbl {
+      font-size: 0.7rem;
+      font-weight: 700;
+      color: #6b7280;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      white-space: nowrap;
+    }
+
+    .result-val {
+      font-family: 'Cascadia Code', 'Fira Code', Consolas, monospace;
+      font-size: 0.9375rem;
+      color: #111827;
+      word-break: break-all;
+    }
+
+    .result-val-wrap {
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+    }
+
+    .copy-btn {
+      background: none;
+      border: none;
+      cursor: pointer;
+      padding: 0;
+      color: #9ca3af;
+      flex-shrink: 0;
+      line-height: 1;
+      transition: color 0.12s;
+    }
+    .copy-btn:hover  { color: #3b82f6; }
+    .copy-btn.copied { color: #22c55e; }
+
+    /* ── Ramp results ─────────────────────────────────────── */
+    .ramp-results {
+      margin-top: 1rem;
+      border: 1px solid #e5e7eb;
+      border-radius: 6px;
+      padding: 0.875rem 1rem;
+    }
+    .ramp-results.error {
+      background: #fef2f2;
+      border-color: #fca5a5;
+      color: #991b1b;
+    }
+
+    .ramp-results-hdr {
+      font-size: 0.75rem;
+      font-weight: 700;
+      color: #6b7280;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      margin-bottom: 0.625rem;
+    }
+
+    .ramp-col-template {
+      display: grid;
+      grid-template-columns: 0.4fr 0.55fr 0.7fr 0.3fr 0.8fr 0.7fr 0.3fr 1.1fr 4fr;
+      gap: 0.5rem;
+      align-items: center;
+    }
+
+    .ramp-list {
+      list-style: none;
+    }
+
+    .ramp-list-header {
+      padding: 0.25rem 0.6rem 0.35rem;
+      border-bottom: 2px solid #e5e7eb;
+      margin-bottom: 0.2rem;
+      font-size: 0.7rem;
+      font-weight: 700;
+      color: #9ca3af;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .ramp-item {
+      padding: 0.35rem 0.6rem;
+      font-size: 0.8125rem;
+      color: #374151;
+      border-radius: 3px;
+    }
+    .ramp-item:nth-child(odd) { background: #e9ebed; }
+
+    .ramp-empty {
+      font-size: 0.875rem;
+      color: #9ca3af;
+      font-style: italic;
+    }
+
+    .ramp-pagination {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 0.4rem;
+    }
+    .page-arrow {
+      background: none;
+      border: none;
+      cursor: pointer;
+      font-size: 1rem;
+      color: #374151;
+      padding: 0.1rem 0.4rem;
+      border-radius: 3px;
+      line-height: 1;
+    }
+    .page-arrow:hover:not(:disabled) { background: #f3f4f6; }
+    .page-arrow:disabled { color: #d1d5db; cursor: default; }
+    .pagination-left,
+    .pagination-right {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.2rem;
+    }
+    .pagination-left { align-items: flex-start; }
+    .pagination-right { align-items: flex-end; }
+    .export-btn {
+      font-size: 0.72rem;
+      font-weight: 600;
+      color: #fff;
+      background: #2563eb;
+      border: none;
+      border-radius: 4px;
+      padding: 0.2rem 0.55rem;
+      cursor: pointer;
+      letter-spacing: 0.02em;
+    }
+    .export-btn:hover { background: #1d4ed8; }
+
+    .mode-selector {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 2rem 0 1rem;
+    }
+    .mode-selector-box {
+      border: 1px solid #d1d5db;
+      border-radius: 8px;
+      padding: 0.5rem 1.25rem 0.75rem;
+      margin: 0;
+    }
+    .mode-selector-btns {
+      display: flex;
+      gap: 1rem;
+    }
+    .mode-btn {
+      padding: 0.6rem 1rem;
+      width: 10.5rem;
+      background: #2563eb;
+      color: #fff;
+      font-size: 0.875rem;
+      font-weight: 600;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: background 0.12s;
+    }
+    .mode-btn:hover { background: #1d4ed8; }
+    .mode-btn.active { background: #1e3a8a; }
+    .mode-selector-label {
+      font-size: 0.8rem;
+      font-weight: 500;
+      color: #6b7280;
+      white-space: nowrap;
+      padding: 0 0.4rem;
+    }
+    .route-form-row {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      padding: 1rem 0 0.5rem;
+    }
+    .route-form-row label {
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: #374151;
+    }
+    .route-form-row select {
+      font-size: 0.85rem;
+      padding: 0.3rem 0.5rem;
+      border: 1px solid #d1d5db;
+      border-radius: 4px;
+      min-width: 120px;
+      width: auto;
+    }
+    .report-title {
+      text-align: center;
+      line-height: 1.3;
+    }
+    .report-title-line1 {
+      font-size: 1.6rem;
+      font-weight: 600;
+      color: #374151;
+    }
+    .report-title-line2 {
+      font-size: 1.5rem;
+      color: #6b7280;
+    }
+    .report-title-line3 {
+      font-size: 1.2rem;
+      color: #6b7280;
+      margin-top: 1.5rem;
+    }
+    .page-info {
+      font-size: 0.75rem;
+      color: #6b7280;
+      text-align: center;
+      margin-top: 0.4rem;
+    }
+
+    #loginPrompt {
+      text-align: center;
+      color: #6b7280;
+      font-size: 0.875rem;
+      padding: 0.5rem 0;
+    }
+
+    .report-action-bar {
+      display: flex;
+      align-items: flex-start;
+      padding: 0.4rem 0 0;
+    }
+    .report-action-bar .report-title {
+      flex: 1;
+      text-align: center;
+    }
+
+    .generated-on {
+      font-size: 0.72rem;
+      color: #9ca3af;
+      text-align: right;
+      padding: 0.75rem 0.25rem 0.25rem;
+    }
+
+    @media print {
+      body { background: none; padding: 0; }
+      .card { box-shadow: none; padding: 0; }
+      .caltrans-logo, #modeSelector, .page-header, #loginPrompt, #routeForm, #appForm, #districtRouteForm,
+      .report-action-bar .export-btn, .pagination-left, .pagination-right, .page-info { display: none !important; }
+      #rampResults { display: block !important; border: none; margin: 0; padding: 0; }
+      .report-action-bar { justify-content: center; padding: 0 0 0.5rem; }
+      .ramp-pagination { display: none !important; }
+      .report-title { text-align: center; }
+    }
+  </style>
+</head>
+<body>
+<div class="card">
+  <img src="caltranslogo.png" alt="Caltrans" class="caltrans-logo">
+  <div id="modeSelector" style="display:none;">
+    <div class="mode-selector">
+      <fieldset class="mode-selector-box">
+        <legend class="mode-selector-label">Query Method</legend>
+        <div class="mode-selector-btns">
+          <button class="mode-btn" id="modeBtnRoute" onclick="selectMode('route')">Route</button>
+          <button class="mode-btn" id="modeBtnDistrictRoute" onclick="selectMode('districtRoute')">District/Route</button>
+          <button class="mode-btn" id="modeBtnRouteMeasure" onclick="selectMode('routeMeasure')">Route/Measure</button>
+        </div>
+      </fieldset>
+    </div>
+  </div>
+
+  <div class="page-header">
+    <div class="ref-date-wrap" id="refDateWrap" style="display:none;">
+      <label for="refDate" class="ref-date-lbl">Reference Date</label>
+      <input type="date" id="refDate" />
+    </div>
+    <h1>Highway Sequence Listing</h1>
+    <div class="version-wrap" id="versionWrap" style="display:none;">
+      <label for="versionSelect" class="version-lbl">Version</label>
+      <select id="versionSelect">
+        <option value="">Default</option>
+      </select>
+    </div>
+  </div>
+
+  <div id="loginPrompt" style="display:none;">
+    <p>Authentication required to use this tool.</p>
+    <button class="btn-primary" onclick="login()" style="width:auto;margin:1rem auto 0;">
+      Sign In with ArcGIS
+    </button>
+  </div>
+
+  <form id="districtRouteForm" style="display:none;" onsubmit="return false;">
+    <div class="route-form-row">
+      <label for="districtSelect">District</label>
+      <select id="districtSelect" onchange="onDistrictChange()">
+        <option value="">-- Select District --</option>
+        <option value="01">01</option>
+        <option value="02">02</option>
+        <option value="03">03</option>
+        <option value="04">04</option>
+        <option value="05">05</option>
+        <option value="06">06</option>
+        <option value="07">07</option>
+        <option value="08">08</option>
+        <option value="09">09</option>
+        <option value="10">10</option>
+        <option value="11">11</option>
+        <option value="12">12</option>
+      </select>
+      <label id="districtRouteLbl" for="districtRouteSelect" style="display:none;">Route</label>
+      <select id="districtRouteSelect" style="display:none;">
+        <option value="">-- Select Route --</option>
+      </select>
+      <button class="btn-primary" id="districtRouteBtn" onclick="runDistrictRouteMode()" style="width:auto; display:none;">Generate</button>
+    </div>
+  </form>
+
+  <form id="routeForm" style="display:none;" onsubmit="return false;">
+    <div class="route-form-row">
+      <label for="routeSelect">Route</label>
+      <select id="routeSelect" onchange="document.getElementById('routeBtn').disabled = !this.value;">
+        <option value="">-- Loading routes\u2026 --</option>
+      </select>
+      <button class="btn-primary" id="routeBtn" onclick="runRouteMode()" style="width:auto;" disabled>Generate</button>
+    </div>
+  </form>
+
+  <form id="appForm" style="display:none;" onsubmit="return false;">
+
+    <!-- From Measure -->
+    <fieldset class="measure-section">
+      <legend class="section-hdr">From Measure</legend>
+      <div class="fields-row">
+        <div class="field">
+          <label for="from-county">County</label>
+          <select id="from-county" onchange="checkTranslateReady()"></select>
+        </div>
+        <div class="field">
+          <label for="from-routeNum">Route #</label>
+          <input type="text" id="from-routeNum" placeholder="e.g. 008" autocomplete="off" oninput="checkTranslateReady()">
+        </div>
+        <div class="field">
+          <label for="from-routeSuffix">Rt Suffix</label>
+          <select id="from-routeSuffix">
+            <option value=".">.</option>
+            <option value="S">S</option>
+            <option value="U">U</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="from-pmPrefix">PM Prefix</label>
+          <select id="from-pmPrefix">
+            <option value=".">.</option>
+            <option value="C">C</option>
+            <option value="D">D</option>
+            <option value="G">G</option>
+            <option value="H">H</option>
+            <option value="L">L</option>
+            <option value="M">M</option>
+            <option value="N">N</option>
+            <option value="R">R</option>
+            <option value="S">S</option>
+            <option value="T">T</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="from-pmSuffix">PM Suffix</label>
+          <select id="from-pmSuffix">
+            <option value=".">.</option>
+            <option value="R">R</option>
+            <option value="L">L</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="from-measure">Measure</label>
+          <input type="text" id="from-measure" placeholder="e.g. 12.123" autocomplete="off" oninput="checkTranslateReady()">
+        </div>
+      </div>
+      <p id="from-translate-error" class="field-error"></p>
+    </fieldset>
+
+    <!-- To Measure -->
+    <fieldset class="measure-section">
+      <legend class="section-hdr">To Measure</legend>
+      <div class="fields-row">
+        <div class="field">
+          <label for="to-county">County</label>
+          <select id="to-county" onchange="checkTranslateReady()"></select>
+        </div>
+        <div class="field">
+          <label for="to-routeNum">Route #</label>
+          <input type="text" id="to-routeNum" placeholder="e.g. 008" autocomplete="off" oninput="checkTranslateReady()">
+        </div>
+        <div class="field">
+          <label for="to-routeSuffix">Rt Suffix</label>
+          <select id="to-routeSuffix">
+            <option value=".">.</option>
+            <option value="S">S</option>
+            <option value="U">U</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="to-pmPrefix">PM Prefix</label>
+          <select id="to-pmPrefix">
+            <option value=".">.</option>
+            <option value="C">C</option>
+            <option value="D">D</option>
+            <option value="G">G</option>
+            <option value="H">H</option>
+            <option value="L">L</option>
+            <option value="M">M</option>
+            <option value="N">N</option>
+            <option value="R">R</option>
+            <option value="S">S</option>
+            <option value="T">T</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="to-pmSuffix">PM Suffix</label>
+          <select id="to-pmSuffix">
+            <option value=".">.</option>
+            <option value="R">R</option>
+            <option value="L">L</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="to-measure">Measure</label>
+          <input type="text" id="to-measure" placeholder="e.g. 12.123" autocomplete="off" oninput="checkTranslateReady()">
+        </div>
+      </div>
+      <p id="to-translate-error" class="field-error"></p>
+    </fieldset>
+
+    <button class="btn-primary" id="translateBtn" onclick="runTranslate()" disabled>Generate</button>
+
+  </form>
+
+  <div id="rampResults" class="ramp-results" style="display:none;"></div>
+</div>
+
+<script>
+  // ── In-memory token state ──────────────────────────────────────────────────
+  let _token       = null;
+  let _tokenExpiry = null;
+
+  // ── Pagination state ───────────────────────────────────────────────────────
+  const PAGE_SIZE  = 25;
+  let _allResults    = [];
+  let _currentPage   = 0;
+  let _allRouteIds        = new Set(); // pre-fetched AllRoads RouteIDs from layer 116
+  let _routeDirectionCache = new Map(); // routeNum → { from, to }
+  let _thinkingTimer = null;
+  let _generatedOn   = '';
+
+  function startThinking(btn) {
+    const phrases = [
+      'Poking the database',
+      'Crunching the numbers',
+      'Asking the interwebs',
+      'Doing math stuff',
+      'Feeding the hamsters',
+      'Chewing on that',
+      'Phoning a friend',
+      'Checking with Jaime'
+    ];
+    const phrase = phrases[Math.floor(Math.random() * phrases.length)];
+    const frames = [
+      phrase + '\u00A0\u00A0\u00A0',
+      phrase + '.\u00A0\u00A0',
+      phrase + '..\u00A0',
+      phrase + '...'
+    ];
+    let i = frames.length - 1;
+    btn.textContent = frames[i];
+    _thinkingTimer = setInterval(() => {
+      i = (i + 1) % frames.length;
+      btn.textContent = frames[i];
+    }, 400);
+  }
+
+  function stopThinking(btn) {
+    if (_thinkingTimer) { clearInterval(_thinkingTimer); _thinkingTimer = null; }
+    btn.textContent = 'Generate';
+  }
+  let _routeLabel    = '';
+  let _directionFrom = '';
+  let _directionTo   = '';
+
+  // ── County codes ──────────────────────────────────────────────────────────
+  const COUNTY_CODES = [
+    {value:'ALA',display:'ALA'}, {value:'ALP',display:'ALP'}, {value:'AMA',display:'AMA'},
+    {value:'BUT',display:'BUT'}, {value:'CAL',display:'CAL'}, {value:'CC.',display:'CC' },
+    {value:'COL',display:'COL'}, {value:'DN.',display:'DN' }, {value:'ED.',display:'ED' },
+    {value:'FRE',display:'FRE'}, {value:'GLE',display:'GLE'}, {value:'HUM',display:'HUM'},
+    {value:'IMP',display:'IMP'}, {value:'INY',display:'INY'}, {value:'KER',display:'KER'},
+    {value:'KIN',display:'KIN'}, {value:'LA.',display:'LA' }, {value:'LAK',display:'LAK'},
+    {value:'LAS',display:'LAS'}, {value:'MAD',display:'MAD'}, {value:'MEN',display:'MEN'},
+    {value:'MER',display:'MER'}, {value:'MNO',display:'MNO'}, {value:'MOD',display:'MOD'},
+    {value:'MON',display:'MON'}, {value:'MPA',display:'MPA'}, {value:'MRN',display:'MRN'},
+    {value:'NAP',display:'NAP'}, {value:'NEV',display:'NEV'}, {value:'ORA',display:'ORA'},
+    {value:'PLA',display:'PLA'}, {value:'PLU',display:'PLU'}, {value:'RIV',display:'RIV'},
+    {value:'SAC',display:'SAC'}, {value:'SB.',display:'SB' }, {value:'SBD',display:'SBD'},
+    {value:'SBT',display:'SBT'}, {value:'SCL',display:'SCL'}, {value:'SCR',display:'SCR'},
+    {value:'SD.',display:'SD' }, {value:'SF.',display:'SF' }, {value:'SHA',display:'SHA'},
+    {value:'SIE',display:'SIE'}, {value:'SIS',display:'SIS'}, {value:'SJ.',display:'SJ' },
+    {value:'SLO',display:'SLO'}, {value:'SM.',display:'SM' }, {value:'SOL',display:'SOL'},
+    {value:'SON',display:'SON'}, {value:'STA',display:'STA'}, {value:'SUT',display:'SUT'},
+    {value:'TEH',display:'TEH'}, {value:'TRI',display:'TRI'}, {value:'TUL',display:'TUL'},
+    {value:'TUO',display:'TUO'}, {value:'VEN',display:'VEN'}
+  ];
+
+  // ── OAuth (ArcGIS implicit flow) ──────────────────────────────────────────
+
+  function login() {
+    const params = new URLSearchParams({
+      client_id:     CONFIG.oauthClientId,
+      response_type: 'token',
+      redirect_uri:  (window.location.origin + window.location.pathname).replace('127.0.0.1', 'localhost'),
+      expiration:    '120'
+    });
+    window.location.href = `${CONFIG.oauthAuthorizeUrl}?${params}`;
+  }
+
+  function tokenIsValid() {
+    if (!_token) return false;
+    if (_tokenExpiry && Date.now() >= _tokenExpiry) { _token = null; return false; }
+    return true;
+  }
+
+  function parseHashParams(hash) {
+    const out = {};
+    hash.replace(/^#/, '').split('&').forEach(pair => {
+      const idx = pair.indexOf('=');
+      if (idx === -1) return;
+      out[decodeURIComponent(pair.slice(0, idx))] = decodeURIComponent(pair.slice(idx + 1));
+    });
+    return out;
+  }
+
+  function setAuthUI(authenticated) {
+    document.getElementById('loginPrompt').style.display        = authenticated ? 'none'  : 'block';
+    document.getElementById('modeSelector').style.display       = authenticated ? 'block' : 'none';
+    document.getElementById('appForm').style.display            = 'none';
+    document.getElementById('routeForm').style.display          = 'none';
+    document.getElementById('districtRouteForm').style.display  = 'none';
+    if (authenticated) { loadVersions(); loadRouteList(); }
+  }
+
+  function selectMode(mode) {
+    document.getElementById('appForm').style.display            = mode === 'routeMeasure'  ? 'block' : 'none';
+    document.getElementById('routeForm').style.display          = mode === 'route'         ? 'block' : 'none';
+    document.getElementById('districtRouteForm').style.display  = mode === 'districtRoute' ? 'block' : 'none';
+    document.getElementById('refDateWrap').style.display        = 'flex';
+    document.getElementById('versionWrap').style.display        = 'flex';
+    document.getElementById('modeBtnRoute').classList.toggle('active', mode === 'route');
+    document.getElementById('modeBtnRouteMeasure').classList.toggle('active', mode === 'routeMeasure');
+    document.getElementById('modeBtnDistrictRoute').classList.toggle('active', mode === 'districtRoute');
+    clearResults();
+  }
+
+  async function loadRouteList() {
+    const params = new URLSearchParams({
+      where:                '1=1',
+      outFields:            'RouteID',
+      returnDistinctValues: 'true',
+      returnGeometry:       'false',
+      ...versionParam(),
+      f:                    'json',
+      token:                _token
+    });
+    let data;
+    try {
+      const resp = await fetch(`${CONFIG.mapServiceUrl}/116/query?${params}`);
+      data = await resp.json();
+    } catch (e) {
+      console.warn('[loadRouteList] fetch error:', e.message);
+      return;
+    }
+    if (!Array.isArray(data.features)) {
+      console.warn('[loadRouteList] unexpected response:', data);
+      return;
+    }
+
+    const routeNums = new Set();
+    for (const f of data.features) {
+      const rid = f.attributes?.RouteID;
+      if (!rid) continue;
+      _allRouteIds.add(rid);
+      // SHS_001._P → "001", SHS_001S_P → "001S"
+      const m = rid.match(/^SHS_(\d{3}[A-Z]?)[\._]/);
+      if (m) routeNums.add(m[1]);
+    }
+
+    const sorted = [...routeNums].sort((a, b) => a.localeCompare(b));
+    const sel = document.getElementById('routeSelect');
+    sel.innerHTML = '<option value="">-- Select Route --</option>';
+    for (const num of sorted) {
+      const opt = document.createElement('option');
+      opt.value = num;
+      opt.textContent = num;
+      sel.appendChild(opt);
+    }
+  }
+
+  async function onDistrictChange() {
+    const district   = document.getElementById('districtSelect').value;
+    const routeSel   = document.getElementById('districtRouteSelect');
+    const routeLbl   = document.getElementById('districtRouteLbl');
+    const btn        = document.getElementById('districtRouteBtn');
+
+    routeLbl.style.display = 'none';
+    routeSel.style.display = 'none';
+    btn.style.display      = 'none';
+    if (!district) return;
+
+    routeSel.innerHTML     = '<option value="">-- Loading routes\u2026 --</option>';
+    routeLbl.style.display = 'inline';
+    routeSel.style.display = 'block';
+
+    const params = new URLSearchParams({
+      where:                `District = ${district}`,
+      outFields:            'RouteNum',
+      returnDistinctValues: 'true',
+      returnGeometry:       'false',
+      orderByFields:        'RouteNum ASC',
+      ...versionParam(),
+      f:                    'json',
+      token:                _token
+    });
+    let data;
+    try {
+      const resp = await fetch(`${CONFIG.mapServiceUrl}/114/query?${params}`);
+      data = await resp.json();
+    } catch (e) {
+      console.warn('[onDistrictChange] fetch error:', e.message);
+      routeSel.innerHTML = '<option value="">-- Error loading routes --</option>';
+      return;
+    }
+    if (!Array.isArray(data.features)) {
+      routeSel.innerHTML = '<option value="">-- No routes found --</option>';
+      return;
+    }
+
+    const routeNums = [...new Set(
+      data.features.map(f => f.attributes?.RouteNum).filter(v => v != null)
+    )].sort((a, b) => a - b);
+
+    routeSel.innerHTML = '<option value="">-- Select Route --</option>';
+    for (const num of routeNums) {
+      const opt = document.createElement('option');
+      opt.value = num;
+      opt.textContent = String(num).padStart(3, '0');
+      routeSel.appendChild(opt);
+    }
+    routeSel.onchange = () => {
+      btn.style.display = routeSel.value ? 'inline-block' : 'none';
+    };
+  }
+
+  async function runDistrictRouteMode() {
+    if (!tokenIsValid()) { login(); return; }
+
+    const district = document.getElementById('districtSelect').value; // padded string e.g. "07"
+    const routeNum = document.getElementById('districtRouteSelect').value;
+    if (!district) { showRampResults('error', 'Please select a district.'); return; }
+    if (!routeNum) { showRampResults('error', 'Please select a route.');    return; }
+
+    const paddedRoute    = String(routeNum).padStart(3, '0');
+    const isSupplemental = /[A-Z]$/.test(paddedRoute);
+    const routeSuffix    = isSupplemental ? paddedRoute.slice(-1) : '.';
+    const primaryId      = isSupplemental ? `SHS_${paddedRoute}_P`  : `SHS_${paddedRoute}._P`;
+    const secondaryId    = isSupplemental ? `SHS_${paddedRoute}_S`  : `SHS_${paddedRoute}._S`;
+
+    // Always include both alignments — layer 116 may not list all RouteIDs present in layer 132/123
+    // Use -0.001 lower bound to capture records with ARMeasure slightly below 0 due to float precision
+    const segments = [
+      { fromBest: { routeId: primaryId,   measure: -0.001 }, toBest: { routeId: primaryId,   measure: 999.999 } },
+      { fromBest: { routeId: secondaryId, measure: -0.001 }, toBest: { routeId: secondaryId, measure: 999.999 } }
+    ];
+
+    const btn = document.getElementById('districtRouteBtn');
+    btn.disabled = true;
+    startThinking(btn);
+    clearResults();
+
+    try {
+      const [[rampPairs, landmarkPairs, intersectionPairs], direction] = await Promise.all([
+        Promise.all([
+          queryAttributeSet(segments, district),
+          queryLandmarks(segments, routeSuffix, district),
+          queryIntersections(segments, district)
+        ]),
+        queryRouteDirection(routeNum)
+      ]);
+      _routeLabel    = paddedRoute;
+      _directionFrom = direction.from;
+      _directionTo   = direction.to;
+      const allPairs = sortWithIndependentAlignments([...rampPairs, ...landmarkPairs, ...intersectionPairs]);
+      if (allPairs.length === 0) { showRampResults('none'); return; }
+      await queryRampDescriptions(allPairs);
+    } catch (err) {
+      showRampResults('error', err.message || 'An error occurred.');
+    } finally {
+      btn.disabled = false;
+      stopThinking(btn);
+    }
+  }
+
+  async function loadVersions() {
+    const vmsUrl = 'https://arcgis.rizing.dev/primary/rest/services/Caltrans/lrs_tsnr/VersionManagementServer';
+    const sel = document.getElementById('versionSelect');
+
+    let resp, data;
+    try {
+      resp = await fetch(`${vmsUrl}/versionInfos`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body:    new URLSearchParams({ f: 'json', token: _token }).toString()
+      });
+      data = await resp.json();
+    } catch (e) {
+      console.error('[loadVersions] error:', e.message);
+      return;
+    }
+
+    if (!Array.isArray(data.versions)) {
+      console.warn('[loadVersions] unexpected response:', data);
+      return;
+    }
+
+    // Sort: DEFAULT first, then alphabetically
+    const sorted = [...data.versions].sort((a, b) => {
+      const aDefault = a.versionName.toUpperCase() === 'SDE.DEFAULT';
+      const bDefault = b.versionName.toUpperCase() === 'SDE.DEFAULT';
+      if (aDefault) return -1;
+      if (bDefault) return  1;
+      return a.versionName.localeCompare(b.versionName);
+    });
+
+    sel.innerHTML = '';
+    for (const v of sorted) {
+      const opt = document.createElement('option');
+      const isDefault = v.versionName.toUpperCase() === 'SDE.DEFAULT';
+      opt.value       = isDefault ? '' : v.versionName;
+      opt.textContent = isDefault ? 'Default' : v.versionName;
+      sel.appendChild(opt);
+    }
+  }
+
+  function getVersion() {
+    return document.getElementById('versionSelect').value;
+  }
+
+  // Returns { gdbVersion: '...' } for named versions, or {} for Default (omit parameter)
+  function versionParam() {
+    const v = getVersion();
+    return v ? { gdbVersion: v } : {};
+  }
+
+  function initAuth() {
+    if (window.location.hash) {
+      const hp = parseHashParams(window.location.hash);
+      if (hp.access_token) {
+        _token = hp.access_token;
+        if (hp.expires_in) _tokenExpiry = Date.now() + parseInt(hp.expires_in, 10) * 1000;
+        history.replaceState(null, '', window.location.pathname + window.location.search);
+        setAuthUI(true);
+        return;
+      }
+    }
+    login();
+  }
+
+  // ── Input population & validation ─────────────────────────────────────────
+
+  function populateCounties() {
+    ['from-county', 'to-county'].forEach(id => {
+      const sel = document.getElementById(id);
+      const placeholder = document.createElement('option');
+      placeholder.value       = '';
+      placeholder.textContent = '-- Select County --';
+      sel.appendChild(placeholder);
+      COUNTY_CODES.forEach(({value, display}) => {
+        const opt = document.createElement('option');
+        opt.value       = value;
+        opt.textContent = display;
+        sel.appendChild(opt);
+      });
+    });
+  }
+
+  function setupValidation() {
+    ['from-routeNum', 'to-routeNum'].forEach(id => {
+      const el = document.getElementById(id);
+      el.addEventListener('input', () => {
+        el.value = el.value.replace(/\D/g, '').slice(0, 3);
+      });
+    });
+
+    // Mirror From route # into To route # while To hasn't been manually changed
+    const fromRouteEl = document.getElementById('from-routeNum');
+    const toRouteEl   = document.getElementById('to-routeNum');
+    let toRouteEdited = false;
+    toRouteEl.addEventListener('input', () => { toRouteEdited = true; });
+    fromRouteEl.addEventListener('input', () => {
+      if (!toRouteEdited) toRouteEl.value = fromRouteEl.value;
+    });
+
+    ['from-measure', 'to-measure'].forEach(id => {
+      const el = document.getElementById(id);
+      el.addEventListener('input', () => {
+        let v = el.value.replace(/[^0-9.]/g, '');
+        const dotIdx = v.indexOf('.');
+        if (dotIdx !== -1) {
+          v = v.slice(0, dotIdx + 1) + v.slice(dotIdx + 1).replace(/\./g, '');
+          if (v.length > dotIdx + 4) v = v.slice(0, dotIdx + 4);
+        }
+        el.value = v;
+      });
+    });
+  }
+
+  // ── Helpers ───────────────────────────────────────────────────────────────
+
+  function readSection(prefix) {
+    return {
+      county:      document.getElementById(`${prefix}-county`).value,
+      routeNum:    document.getElementById(`${prefix}-routeNum`).value.trim(),
+      routeSuffix: document.getElementById(`${prefix}-routeSuffix`).value,
+      pmPrefix:    document.getElementById(`${prefix}-pmPrefix`).value,
+      pmSuffix:    document.getElementById(`${prefix}-pmSuffix`).value,
+      measureRaw:  document.getElementById(`${prefix}-measure`).value.trim(),
+    };
+  }
+
+  function buildRouteId(s, alignment) {
+    return s.county + s.routeNum.padStart(3, '0') + s.routeSuffix + s.pmPrefix + s.pmSuffix + alignment;
+  }
+
+  // Sort pairs by arMeasure, but group independent alignment sections (PMSuffix R or L)
+  // so all R records in a section appear before all L records in that section.
+  function sortWithIndependentAlignments(pairs) {
+    pairs.sort((a, b) => a.arMeasure - b.arMeasure);
+    const result = [];
+    let i = 0;
+    while (i < pairs.length) {
+      if (pairs[i].pmSuffix === 'R' || pairs[i].pmSuffix === 'L') {
+        const j = i;
+        while (i < pairs.length && (pairs[i].pmSuffix === 'R' || pairs[i].pmSuffix === 'L')) i++;
+        const section = pairs.slice(j, i);
+        const rRecs = section.filter(p => p.pmSuffix === 'R').sort((a, b) => a.arMeasure - b.arMeasure);
+        const lRecs = section.filter(p => p.pmSuffix === 'L').sort((a, b) => a.arMeasure - b.arMeasure);
+        result.push(...rRecs, ...lRecs);
+      } else {
+        result.push(pairs[i++]);
+      }
+    }
+    return result;
+  }
+
+  function pickBest(locs) {
+    const valid = locs.filter(l =>
+      l.routeId != null &&
+      l.measure != null &&
+      (!l.status || l.status === 'esriLocatingOK' || l.status === 'esriLocatingMultipleLocation')
+    );
+    if (valid.length === 0) return null;
+    return valid.reduce((a, b) => b.measure > a.measure ? b : a);
+  }
+
+  // ── Translation ───────────────────────────────────────────────────────────
+
+  async function runRouteMode() {
+    if (!tokenIsValid()) { login(); return; }
+
+    const routeNum = document.getElementById('routeSelect').value;
+    if (!routeNum) { showRampResults('error', 'Please select a route.'); return; }
+
+    // Determine AllRoads RouteIDs for _P and _S alignments
+    const isSupplemental = /[A-Z]$/.test(routeNum);
+    const routeSuffix    = isSupplemental ? routeNum.slice(-1) : '.';
+    const primaryId      = isSupplemental ? `SHS_${routeNum}_P`  : `SHS_${routeNum}._P`;
+    const secondaryId    = isSupplemental ? `SHS_${routeNum}_S`  : `SHS_${routeNum}._S`;
+
+    // Build virtual segments covering full route extent; -0.001 lower bound captures records
+    // with ARMeasure slightly below 0 due to floating-point precision (e.g. -0.0000001)
+    const segments = [];
+    if (_allRouteIds.has(primaryId))   segments.push({ fromBest: { routeId: primaryId,   measure: -0.001 }, toBest: { routeId: primaryId,   measure: 999.999 } });
+    if (_allRouteIds.has(secondaryId)) segments.push({ fromBest: { routeId: secondaryId, measure: -0.001 }, toBest: { routeId: secondaryId, measure: 999.999 } });
+    if (segments.length === 0) {
+      showRampResults('error', `No AllRoads routes found for route ${routeNum}.`);
+      return;
+    }
+
+    const btn = document.getElementById('routeBtn');
+    btn.disabled = true;
+    startThinking(btn);
+    clearResults();
+
+    try {
+      const [[rampPairs, landmarkPairs, intersectionPairs], direction] = await Promise.all([
+        Promise.all([queryAttributeSet(segments), queryLandmarks(segments, routeSuffix), queryIntersections(segments)]),
+        queryRouteDirection(routeNum)
+      ]);
+      _routeLabel    = routeNum;
+      _directionFrom = direction.from;
+      _directionTo   = direction.to;
+      const allPairs = sortWithIndependentAlignments([...rampPairs, ...landmarkPairs, ...intersectionPairs]);
+      if (allPairs.length === 0) { showRampResults('none'); return; }
+      await queryRampDescriptions(allPairs);
+    } catch (err) {
+      showRampResults('error', err.message || 'An error occurred.');
+    } finally {
+      btn.disabled = false;
+      stopThinking(btn);
+    }
+  }
+
+  function checkTranslateReady() {
+    const ready =
+      document.getElementById('from-county').value   &&
+      document.getElementById('from-routeNum').value.trim() &&
+      document.getElementById('from-measure').value.trim()  &&
+      document.getElementById('to-county').value     &&
+      document.getElementById('to-routeNum').value.trim()   &&
+      document.getElementById('to-measure').value.trim();
+    document.getElementById('translateBtn').disabled = !ready;
+  }
+
+  function setFieldError(prefix, msg) {
+    const el = document.getElementById(`${prefix}-translate-error`);
+    if (!el) return;
+    el.textContent    = msg;
+    el.style.display  = msg ? 'block' : 'none';
+  }
+
+  // Translate one section (From or To) — returns { bestR, bestL } or throws
+  async function translateSection(routeIdR, routeIdL, measure) {
+    const body = new URLSearchParams({
+      locations:             JSON.stringify([
+        { routeId: routeIdR, measure },
+        { routeId: routeIdL, measure }
+      ]),
+      targetNetworkLayerIds: JSON.stringify([4]),
+      ...versionParam(),
+      f:     'json',
+      token: _token
+    });
+    const resp = await fetch(`${CONFIG.mapServiceUrl}/exts/LRServer/networkLayers/3/translate`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body:    body.toString()
+    });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}: ${resp.statusText}`);
+    const data = await resp.json();
+    if (data.error) {
+      const code = data.error.code;
+      if (code === 498 || code === 499) { _token = null; login(); throw new Error('auth'); }
+      throw new Error(`API error ${code}: ${data.error.message}`);
+    }
+    const locs = data.locations ?? [];
+    return {
+      bestR: pickBest(locs[0]?.translatedLocations ?? []),
+      bestL: pickBest(locs[1]?.translatedLocations ?? [])
+    };
+  }
+
+  async function runTranslate() {
+    if (!tokenIsValid()) { login(); return; }
+
+    const from = readSection('from');
+    const to   = readSection('to');
+
+    const fromMeasure = parseFloat(from.measureRaw);
+    if (isNaN(fromMeasure)) { showRampResults('error', 'From measure must be a number.'); return; }
+    const toMeasure = parseFloat(to.measureRaw);
+    if (isNaN(toMeasure)) { showRampResults('error', 'To measure must be a number.'); return; }
+
+    // Clear any previous per-field errors
+    setFieldError('from', '');
+    setFieldError('to',   '');
+
+    const fromRouteIdR = buildRouteId(from, 'R');
+    const fromRouteIdL = buildRouteId(from, 'L');
+    const toRouteIdR   = buildRouteId(to,   'R');
+    const toRouteIdL   = buildRouteId(to,   'L');
+
+    // Also translate L-pmSuffix variants to capture features calibrated on the L postmile route
+    const needsLAlt  = from.pmSuffix !== 'L';
+    const fromL      = { ...from, pmSuffix: 'L' };
+    const toL        = { ...to,   pmSuffix: 'L' };
+
+    const btn = document.getElementById('translateBtn');
+    btn.disabled = true;
+    startThinking(btn);
+    clearResults();
+
+    try {
+      // Translate primary and L-pmSuffix variants all in parallel
+      const [fromResult, toResult, fromAltResult, toAltResult] = await Promise.allSettled([
+        translateSection(fromRouteIdR, fromRouteIdL, fromMeasure),
+        translateSection(toRouteIdR,   toRouteIdL,   toMeasure),
+        needsLAlt ? translateSection(buildRouteId(fromL, 'R'), buildRouteId(fromL, 'L'), fromMeasure) : Promise.resolve(null),
+        needsLAlt ? translateSection(buildRouteId(toL,   'R'), buildRouteId(toL,   'L'), toMeasure)   : Promise.resolve(null)
+      ]);
+
+      // Error display only on primary results
+      let hasError = false;
+
+      if (fromResult.status === 'rejected') {
+        if (fromResult.reason?.message !== 'auth') setFieldError('from', 'INVALID LOCATION');
+        hasError = true;
+      } else if (!fromResult.value.bestR && !fromResult.value.bestL) {
+        setFieldError('from', 'INVALID LOCATION');
+        hasError = true;
+      }
+
+      if (toResult.status === 'rejected') {
+        if (toResult.reason?.message !== 'auth') setFieldError('to', 'INVALID LOCATION');
+        hasError = true;
+      } else if (!toResult.value.bestR && !toResult.value.bestL) {
+        setFieldError('to', 'INVALID LOCATION');
+        hasError = true;
+      }
+
+      if (hasError) return;
+
+      const { bestR: fromBestR, bestL: fromBestL } = fromResult.value;
+      const { bestR: toBestR,   bestL: toBestL   } = toResult.value;
+
+      // Pull alt (L-pmSuffix) results if available — used to widen the ARMeasure range
+      const fromAltV = fromAltResult.status === 'fulfilled' ? fromAltResult.value : null;
+      const toAltV   = toAltResult.status   === 'fulfilled' ? toAltResult.value   : null;
+
+      // Build a segment using the most inclusive From/To measures across both pmSuffix variants.
+      // Alt substitutes for primary when primary is null (e.g. only L-pmSuffix translates on that alignment).
+      function makeSegment(fromPrimary, fromAlt, toPrimary, toAlt) {
+        const fromEff = fromPrimary ?? fromAlt;
+        const toEff   = toPrimary   ?? toAlt;
+        if (!fromEff || !toEff) return null;
+        const fromM = Math.min(fromEff.measure, fromAlt?.measure ?? fromEff.measure);
+        const toM   = Math.max(toEff.measure,   toAlt?.measure   ?? toEff.measure);
+        return { fromBest: { routeId: fromEff.routeId, measure: fromM },
+                 toBest:   { routeId: toEff.routeId,   measure: toM   } };
+      }
+
+      const segments = [
+        makeSegment(fromBestR, fromAltV?.bestR, toBestR, toAltV?.bestR),
+        makeSegment(fromBestL, fromAltV?.bestL, toBestL, toAltV?.bestL)
+      ].filter(Boolean);
+
+      if (segments.length === 0) {
+        showRampResults('error', 'Translation failed for both R and L alignments.');
+        return;
+      }
+
+      const [[rampPairs, landmarkPairs, intersectionPairs], direction] = await Promise.all([
+        Promise.all([queryAttributeSet(segments), queryLandmarks(segments, from.routeSuffix), queryIntersections(segments)]),
+        queryRouteDirection(from.routeNum.padStart(3, '0'))
+      ]);
+      _routeLabel    = from.routeNum.padStart(3, '0');
+      _directionFrom = direction.from;
+      _directionTo   = direction.to;
+
+      const allPairs = sortWithIndependentAlignments([...rampPairs, ...landmarkPairs, ...intersectionPairs]);
+
+      if (allPairs.length === 0) {
+        showRampResults('none');
+        return;
+      }
+
+      await queryRampDescriptions(allPairs);
+
+    } finally {
+      btn.disabled = false;
+      stopThinking(btn);
+    }
+  }
+
+  // ── Result display ────────────────────────────────────────────────────────
+
+  function clearResults() {
+    const rampBox = document.getElementById('rampResults');
+    rampBox.style.display = 'none';
+    rampBox.className = 'ramp-results';
+    rampBox.innerHTML = '';
+    _allResults    = [];
+    _currentPage   = 0;
+    _routeLabel    = '';
+    _directionFrom = '';
+    _directionTo   = '';
+  }
+
+  async function queryRouteDirection(routeNum) {
+    const cacheKey = `${routeNum}:${getVersion()}`;
+    if (_routeDirectionCache.has(cacheKey)) return _routeDirectionCache.get(cacheKey);
+
+    const routeInt = parseInt(routeNum, 10);
+    if (isNaN(routeInt)) return { from: '', to: '' };
+    const params = new URLSearchParams({
+      where:          `ROUTE = ${routeInt}`,
+      outFields:      'FROM_,TO_',
+      returnGeometry: 'false',
+      ...versionParam(),
+      f:              'json',
+      token:          _token
+    });
+    try {
+      const resp = await fetch(`${CONFIG.mapServiceUrl}/304/query?${params}`);
+      const data = await resp.json();
+      if (data.features?.length > 0) {
+        const a = data.features[0].attributes;
+        const result = { from: a.FROM_ ?? '', to: a.TO_ ?? '' };
+        _routeDirectionCache.set(cacheKey, result);
+        return result;
+      }
+    } catch (e) {
+      console.error('[queryRouteDirection] error:', e.message);
+    }
+    return { from: '', to: '' };
+  }
+
+// ── Query Attribute Set ───────────────────────────────────────────────────
+
+  async function queryAttributeSet(segments, district = null) {
+    // Build one OR clause per segment (each segment is one alignment: R or L)
+    // Small epsilon on both bounds absorbs floating-point drift from translate API
+    const segClauses = segments.map(({ fromBest, toBest }) => {
+      const fromM = Math.min(fromBest.measure, toBest.measure) - 0.005;
+      const toM   = Math.max(fromBest.measure, toBest.measure) + 0.005;
+      return `(RouteID = '${fromBest.routeId}' AND ARMeasure >= ${fromM} AND ARMeasure <= ${toM})`;
+    });
+
+    const dateFilter     = getDateFilter();
+    const districtFilter = district != null ? ` AND District = ${district}` : '';
+    const where = segClauses.length === 1
+      ? segClauses[0].slice(1, -1) + districtFilter + ' AND LRSToDate IS NULL' + dateFilter
+      : `(${segClauses.join(' OR ')})${districtFilter} AND LRSToDate IS NULL${dateFilter}`;
+
+    // Layer 132 is a point event layer — use standard feature layer query
+    const body = new URLSearchParams({
+      where,
+      outFields:      'Ramp_Name,RouteID,ARMeasure,County,RouteSuffix,PMPrefix,PMSuffix,PMMeasure,District,InventoryItemStartDate,InventoryItemEndDate',
+      orderByFields:  'ARMeasure ASC',
+      returnGeometry: 'false',
+      ...versionParam(),
+      f:              'json',
+      token:          _token
+    });
+
+
+    let resp;
+    try {
+      resp = await fetch(`${CONFIG.mapServiceUrl}/132/query`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body:    body.toString()
+      });
+    } catch (e) {
+      console.error('[queryRamps] network error:', e.message);
+      return [];
+    }
+
+    if (!resp.ok) {
+      console.error('[queryRamps] HTTP', resp.status, resp.statusText);
+      return [];
+    }
+
+    let data;
+    try {
+      data = await resp.json();
+    } catch (e) {
+      console.error('[queryRamps] invalid JSON');
+      return [];
+    }
+
+
+    if (data.error) {
+      const code = data.error.code;
+      if (code === 498 || code === 499) { _token = null; login(); return []; }
+      console.error(`[queryRamps] API error ${code}: ${data.error.message}`);
+      return [];
+    }
+
+    const features = data.features;
+    if (!Array.isArray(features)) return [];
+    if (data.exceededTransferLimit) console.warn('[queryRamps] exceededTransferLimit — results truncated. Narrow the measure range.');
+
+    // Build unique pairs keyed by Ramp_Name (keep first occurrence per name)
+    const seenNames = new Set();
+    const pairs = [];
+    for (const f of features) {
+      const a = f.attributes ?? {};
+      const name = a.Ramp_Name;
+      if (name != null && name !== '' && !seenNames.has(name)) {
+        seenNames.add(name);
+        pairs.push({
+          type:        'ramp',
+          name,
+          routeId:     a.RouteID,
+          arMeasure:   a.ARMeasure,
+          county:      a.County      ?? '',
+          routeSuffix: a.RouteSuffix ?? '',
+          pmPrefix:    a.PMPrefix    ?? '',
+          pmSuffix:    a.PMSuffix    ?? '.',
+          pmMeasure:   a.PMMeasure   ?? '',
+          district:    a.District != null ? String(a.District).padStart(2, '0') : '',
+          startDate:   a.InventoryItemStartDate ?? null,
+          endDate:     a.InventoryItemEndDate   ?? null
+        });
+      }
+    }
+    return pairs;
+  }
+
+  async function queryIntersections(segments, district = null) {
+    try {
+      // ── Step 1: measureToGeometry — get polyline geometry for each segment ──
+      const geoLocations = segments.map(({ fromBest, toBest }) => ({
+        routeId:     fromBest.routeId,
+        fromMeasure: Math.min(fromBest.measure, toBest.measure) - 0.005,
+        toMeasure:   Math.max(fromBest.measure, toBest.measure) + 0.005
+      }));
+
+      const m2gBody = new URLSearchParams({
+        locations: JSON.stringify(geoLocations),
+        ...versionParam(),
+        f:     'json',
+        token: _token
+      });
+      const m2gResp = await fetch(
+        `${CONFIG.mapServiceUrl}/exts/LRServer/networkLayers/4/measureToGeometry`,
+        { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: m2gBody.toString() }
+      );
+      const m2gData = await m2gResp.json();
+
+      const segmentGeometries = (m2gData.locations ?? [])
+        .filter(l => l.geometries?.length > 0 || l.geometry)
+        .map(l => l.geometry ?? l.geometries?.[0])
+        .filter(Boolean);
+
+      if (segmentGeometries.length === 0) return [];
+
+      // ── Step 2: Spatially query layer 0 for each segment geometry (parallel) ─
+      const layer0Results = await Promise.all(segmentGeometries.map(geom => {
+        const qBody = new URLSearchParams({
+          where:          '1=1',
+          geometry:       JSON.stringify(geom),
+          geometryType:   'esriGeometryPolyline',
+          spatialRel:     'esriSpatialRelIntersects',
+          outFields:      'INTERSECTION_ID',
+          returnGeometry: 'true',
+          ...versionParam(),
+          f:     'json',
+          token: _token
+        });
+        return fetch(`${CONFIG.mapServiceUrl}/0/query`,
+          { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: qBody.toString() }
+        ).then(r => r.json());
+      }));
+
+      const intersectionMap = new Map(); // INTERSECTION_ID → point geometry
+      for (const qData of layer0Results) {
+        for (const f of qData.features ?? []) {
+          const id = f.attributes?.INTERSECTION_ID;
+          if (id != null && !intersectionMap.has(id)) intersectionMap.set(id, f.geometry);
+        }
+      }
+      if (intersectionMap.size === 0) return [];
+
+      // ── Steps 3 & 4 in parallel ──────────────────────────────────────────────
+      // Step 3: layer 149 existence check (chunked)
+      // Step 4: geometryToMeasure for all candidate points
+      const INT_CHUNK = 200;
+      const idList   = Array.from(intersectionMap.keys());
+      const allGeoms = Array.from(intersectionMap.values());
+
+      const g2mBody = new URLSearchParams({
+        locations:  JSON.stringify(allGeoms.map(g => ({ geometry: g }))),
+        tolerance:  '50',
+        ...versionParam(),
+        f:     'json',
+        token: _token
+      });
+
+      const idChunks = [];
+      for (let i = 0; i < idList.length; i += INT_CHUNK) idChunks.push(idList.slice(i, i + INT_CHUNK));
+
+      const [aoiFeatures, g2mData] = await Promise.all([
+        Promise.all(idChunks.map(chunk => {
+          const chunkList = chunk.map(id => `'${String(id).replace(/'/g, "''")}'`).join(',');
+          const aoiBody = new URLSearchParams({
+            where:          `INTERSECTION_ID IN (${chunkList})`,
+            outFields:      'INTERSECTION_ID',
+            returnGeometry: 'false',
+            ...versionParam(),
+            f:     'json',
+            token: _token
+          });
+          return fetch(`${CONFIG.mapServiceUrl}/149/query`,
+            { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: aoiBody.toString() }
+          ).then(r => r.json()).then(d => d.features ?? []).catch(() => []);
+        })).then(chunks => chunks.flat()),
+        fetch(`${CONFIG.mapServiceUrl}/exts/LRServer/networkLayers/4/geometryToMeasure`,
+          { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: g2mBody.toString() }
+        ).then(r => r.json())
+      ]);
+
+      const validIds = new Set(
+        aoiFeatures.map(f => f.attributes?.INTERSECTION_ID).filter(id => id != null)
+      );
+      if (validIds.size === 0) return [];
+
+      const segRouteIds = new Set(geoLocations.map(g => g.routeId));
+      const idToMeasure = new Map(); // INTERSECTION_ID → { routeId, arMeasure }
+      (g2mData.locations ?? []).forEach((loc, idx) => {
+        const id = idList[idx];
+        if (!validIds.has(id)) return; // skip IDs not confirmed by layer 149
+        const results = loc.results ?? [];
+        const result  = results.find(r => segRouteIds.has(r.routeId) && r.distance === 0)
+                     ?? results.find(r => segRouteIds.has(r.routeId))
+                     ?? results[0];
+        if (result?.routeId && result.measure != null) {
+          idToMeasure.set(id, { routeId: result.routeId, arMeasure: result.measure });
+        }
+      });
+      if (idToMeasure.size === 0) return [];
+
+      // ── Step 5: Query layer 151 (Intersection Detail, chunked) ─────────────
+      const measuredIds    = Array.from(idToMeasure.keys());
+      const dateFilter     = getIntersectionDateFilter();
+      const districtFilter = district != null ? ` AND District_Code = '${String(parseInt(district, 10))}'` : '';
+      const detailChunks   = [];
+      for (let i = 0; i < measuredIds.length; i += INT_CHUNK) detailChunks.push(measuredIds.slice(i, i + INT_CHUNK));
+
+      const allDetailFeatures = (await Promise.all(detailChunks.map(async chunk => {
+        const chunkList151 = chunk.map(id => `'${String(id).replace(/'/g, "''")}'`).join(',');
+        const detailWhere  = `INTERSECTION_ID IN (${chunkList151}) AND LRS_DATE_RETIRE IS NULL${districtFilter}${dateFilter}`;
+        const detailBody   = new URLSearchParams({
+          where:          detailWhere,
+          outFields:      'INTERSECTION_ID,Intersection_Name,County_Code,District_Code,Main_RouteNum,Main_RouteSuffix,Main_PMPrefix,Main_PMSuffix,Main_PMMeasure',
+          returnGeometry: 'false',
+          ...versionParam(),
+          f:     'json',
+          token: _token
+        });
+        const detailData = await fetch(
+          `${CONFIG.mapServiceUrl}/151/query`,
+          { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: detailBody.toString() }
+        ).then(r => r.json()).catch(() => ({}));
+        if (detailData.error) {
+          console.error('[queryIntersections] layer 151 API error:', detailData.error.code, detailData.error.message);
+          return [];
+        }
+        return detailData.features ?? [];
+      }))).flat();
+
+      // One detail record per INTERSECTION_ID (LRS_DATE_RETIRE IS NULL ensures uniqueness)
+      const detailMap = new Map();
+      for (const f of allDetailFeatures) {
+        const a = f.attributes ?? {};
+        if (a.INTERSECTION_ID != null && !detailMap.has(a.INTERSECTION_ID)) {
+          detailMap.set(a.INTERSECTION_ID, {
+            desc:        a.Intersection_Name ?? '',
+            county:      a.County_Code       ?? '',
+            district:    a.District_Code ? String(a.District_Code).padStart(2, '0') : '',
+            routeNum:    a.Main_RouteNum     ?? '',
+            routeSuffix: a.Main_RouteSuffix  ?? '.',
+            pmPrefix:    a.Main_PMPrefix     ?? '.',
+            pmSuffix:    a.Main_PMSuffix     ?? '.',
+            pmMeasure:   a.Main_PMMeasure    ?? ''
+          });
+        }
+      }
+
+      // ── Build pairs ─────────────────────────────────────────────────────────
+      const pairs = [];
+      for (const id of measuredIds) {
+        const detail  = detailMap.get(id);
+        if (!detail) continue;
+        const measure   = idToMeasure.get(id);
+        const isPrimary = measure.routeId.endsWith('_P');
+        const pmRouteId = detail.county + detail.routeNum.padStart(3, '0') + detail.routeSuffix + detail.pmPrefix + detail.pmSuffix + (isPrimary ? 'R' : 'L');
+        pairs.push({
+          type:        'intersection',
+          name:        String(id),
+          desc:        detail.desc,
+          routeId:     measure.routeId,
+          arMeasure:   measure.arMeasure,
+          county:      detail.county,
+          district:    detail.district,
+          routeSuffix: '',
+          pmPrefix:    detail.pmPrefix,
+          pmSuffix:    detail.pmSuffix,
+          pmMeasure:   detail.pmMeasure,
+          pmRouteId,
+          startDate:   null,
+          endDate:     null
+        });
+      }
+      return pairs;
+
+    } catch (e) {
+      console.error('[queryIntersections] error:', e.message);
+      return [];
+    }
+  }
+
+  async function queryLandmarks(segments, routeSuffix, district = null) {
+    // Use RouteNum instead of RouteID so we match records calibrated on any network
+    // (e.g. county-route records like 37005R have County/PMMeasure populated while
+    //  AllRoads records like SHS_005._P may have them null)
+    const segClauses = segments.map(({ fromBest, toBest }) => {
+      const fromM    = Math.min(fromBest.measure, toBest.measure) - 0.005;
+      const toM      = Math.max(fromBest.measure, toBest.measure) + 0.005;
+      const routeNum = fromBest.routeId.match(/\d{3}/)?.[0] ?? null;
+      return routeNum
+        ? `(RouteNum = '${routeNum}' AND ARMeasure >= ${fromM} AND ARMeasure <= ${toM})`
+        : `(RouteID = '${fromBest.routeId}' AND ARMeasure >= ${fromM} AND ARMeasure <= ${toM})`;
+    });
+
+    // Deduplicate segment clauses (R and L may resolve to same RouteNum + measure range)
+    const uniqueClauses = [...new Set(segClauses)];
+
+    // If the query has a meaningful route suffix (e.g. 'S'), restrict to that suffix only.
+    // Otherwise exclude 'S' records, which belong to a different signed route.
+    const isSuffix = routeSuffix && routeSuffix !== '.';
+    const suffixFilter = isSuffix
+      ? ` AND RouteSuffix = '${routeSuffix}'`
+      : ` AND (RouteSuffix IS NULL OR RouteSuffix <> 'S')`;
+
+    const dateFilter     = getDateFilter();
+    const districtFilter = district != null ? ` AND District = ${district}` : '';
+    const where = uniqueClauses.length === 1
+      ? uniqueClauses[0].slice(1, -1) + suffixFilter + districtFilter + ' AND LRSToDate IS NULL' + dateFilter
+      : `(${uniqueClauses.join(' OR ')})${suffixFilter}${districtFilter} AND LRSToDate IS NULL${dateFilter}`;
+
+    const body = new URLSearchParams({
+      where,
+      outFields:      'Landmarks_Short,Landmarks_Long,RouteID,ARMeasure,County,RouteSuffix,PMPrefix,PMSuffix,PMMeasure,ODMeasure,District,InventoryItemStartDate,InventoryItemEndDate',
+      orderByFields:  'ARMeasure ASC',
+      returnGeometry: 'false',
+      ...versionParam(),
+      f:              'json',
+      token:          _token
+    });
+
+
+    let resp, data;
+    try {
+      resp = await fetch(`${CONFIG.mapServiceUrl}/123/query`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body:    body.toString()
+      });
+      data = await resp.json();
+    } catch (e) {
+      console.error('[queryLandmarks] error:', e.message);
+      return [];
+    }
+
+
+    if (data.error) {
+      const code = data.error.code;
+      if (code === 498 || code === 499) { _token = null; login(); return []; }
+      console.error(`[queryLandmarks] API error ${code}: ${data.error.message}`);
+      return [];
+    }
+
+    const features = data.features;
+    if (!Array.isArray(features)) return [];
+    if (data.exceededTransferLimit) console.warn('[queryLandmarks] exceededTransferLimit — results truncated. Narrow the measure range.');
+
+    // Dedup by name, but prefer the record with County populated over one with null
+    const nameMap = new Map();
+    for (const f of features) {
+      const a = f.attributes ?? {};
+      const name = a.Landmarks_Short;
+      if (name == null || name === '') continue;
+      const long = a.Landmarks_Long;
+      const desc = (long != null && long !== '') ? `${name}, ${long}` : name;
+      const pair = {
+        type:        'landmark',
+        name,
+        desc,
+        routeId:     a.RouteID,
+        arMeasure:   a.ARMeasure,
+        county:      a.County      ?? '',
+        routeSuffix: a.RouteSuffix ?? '',
+        pmPrefix:    a.PMPrefix    ?? '',
+        pmSuffix:    a.PMSuffix    ?? '.',
+        pmMeasure:   a.PMMeasure   ?? '',
+        odMeasure:   a.ODMeasure != null ? String(a.ODMeasure) : '',
+        district:    a.District != null ? String(a.District).padStart(2, '0') : '',
+        startDate:   a.InventoryItemStartDate ?? null,
+        endDate:     a.InventoryItemEndDate   ?? null
+      };
+      const existing = nameMap.get(name);
+      if (!existing || (pair.county !== '' && existing.county === '')) {
+        nameMap.set(name, pair);
+      }
+    }
+    return Array.from(nameMap.values());
+  }
+
+  async function queryRampDescriptions(allPairs) {
+    // Only query layer 131 for ramp records — landmarks already have desc set
+    const descMap = new Map();
+    const rampsOnly = allPairs.filter(p => p.type === 'ramp');
+
+    if (rampsOnly.length > 0) {
+      const CHUNK = 100;
+      const chunks = [];
+      for (let i = 0; i < rampsOnly.length; i += CHUNK) chunks.push(rampsOnly.slice(i, i + CHUNK));
+
+      const allDescFeatures = (await Promise.all(chunks.map(async chunk => {
+        const inList = chunk.map(p => `'${p.name.replace(/'/g, "''")}'`).join(', ');
+        const body = new URLSearchParams({
+          where:          `Ramp_Name IN (${inList})${getDateFilter()}`,
+          outFields:      'Ramp_Name,Ramp_Description',
+          returnGeometry: 'false',
+          ...versionParam(),
+          f:              'json',
+          token:          _token
+        });
+        try {
+          const resp = await fetch(`${CONFIG.mapServiceUrl}/131/query`, {
+            method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: body.toString()
+          });
+          const data = await resp.json();
+          if (data.error) {
+            const code = data.error.code;
+            if (code === 498 || code === 499) { _token = null; login(); return []; }
+            console.error(`[queryRampDesc] API error ${code}: ${data.error.message}`);
+            return [];
+          }
+          return Array.isArray(data.features) ? data.features : [];
+        } catch (e) {
+          console.error('[queryRampDesc] error:', e.message);
+          return [];
+        }
+      }))).flat();
+
+      for (const f of allDescFeatures) {
+        const n = f.attributes?.Ramp_Name;
+        const d = f.attributes?.Ramp_Description;
+        if (n != null && !descMap.has(n)) descMap.set(n, d ?? '');
+      }
+    }
+
+    const [hwyMap, cityMap, odMap] = await Promise.all([
+      queryHighwayGroups(allPairs),
+      queryCityCode(allPairs),
+      translateToOD(allPairs)
+    ]);
+
+    const results = allPairs.map(p => ({
+      name:        p.name,
+      featureType: p.type === 'landmark' ? 'H' : p.type === 'intersection' ? 'I' : 'R',
+      desc:        p.type === 'ramp' ? (descMap.get(p.name) ?? '') : p.desc,
+      hwyGroup:    hwyMap.get(p.name)  ?? '',
+      cityCode:    cityMap.get(p.name) ?? '',
+      county:      p.county,
+      district:    p.district ?? '',
+      routeSuffix: p.routeSuffix,
+      pmPrefix:    p.pmPrefix ?? '',
+      pmSuffix:    p.pmSuffix ?? '.',
+      pmMeasure:   p.pmMeasure,
+      odMeasure:   odMap.get(p.name)   ?? '',
+      startDate:   p.startDate,
+      endDate:     p.endDate
+    }));
+
+    showRampResults('success', null, results);
+  }
+
+  // Returns a Map of name → OD measure.
+  // Landmarks use ODMeasure from layer 123 directly (pre-seeded).
+  // Intersections translate from Postmile (layer 3) to OD (layer 5).
+  async function translateToOD(allPairs) {
+    const resultMap = new Map(allPairs.map(p => [p.name, p.odMeasure ?? '']));
+
+    const pmPairs = allPairs.filter(p => p.pmRouteId);
+    if (pmPairs.length === 0) return resultMap;
+
+    const body = new URLSearchParams({
+      locations:             JSON.stringify(pmPairs.map(p => ({ routeId: p.pmRouteId, measure: Number(p.pmMeasure) }))),
+      targetNetworkLayerIds: JSON.stringify([5]),
+      ...versionParam(),
+      f:     'json',
+      token: _token
+    });
+    let resp, data;
+    try {
+      resp = await fetch(`${CONFIG.mapServiceUrl}/exts/LRServer/networkLayers/3/translate`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body:    body.toString()
+      });
+      data = await resp.json();
+    } catch (e) {
+      console.error('[translateToOD] error:', e.message);
+      return resultMap;
+    }
+    if (data.error) {
+      const code = data.error.code;
+      if (code === 498 || code === 499) { _token = null; login(); }
+      console.error(`[translateToOD] API error ${code}: ${data.error.message}`);
+      return resultMap;
+    }
+    pmPairs.forEach((p, i) => {
+      const locs = data.locations?.[i]?.translatedLocations;
+      const best = Array.isArray(locs)
+        ? (locs.find(l => l.status === 'esriLocatingOK') ?? locs[0])
+        : null;
+      resultMap.set(p.name, best?.measure != null ? Number(best.measure).toFixed(6) : '');
+    });
+
+    return resultMap;
+  }
+
+  // Returns a Map of Ramp_Name → Highway_Group
+  async function queryHighwayGroups(rampPairs) {
+    const CHUNK = 100;
+    const chunks = [];
+    for (let i = 0; i < rampPairs.length; i += CHUNK) chunks.push(rampPairs.slice(i, i + CHUNK));
+
+    const allFeatures = (await Promise.all(chunks.map(async chunk => {
+      // _S records: fall back to _P routeId — layers 116/74 only carry _P alignments
+      const orClauses = chunk.map(p => {
+        const rid = p.routeId.endsWith('_S') ? p.routeId.slice(0, -2) + '_P' : p.routeId;
+        return `(RouteID = '${rid}' AND FromARMeasure <= ${p.arMeasure} AND ToARMeasure >= ${p.arMeasure})`;
+      }).join(' OR ');
+      const body = new URLSearchParams({
+        where:          `(${orClauses})${getDateFilter()}`,
+        outFields:      'RouteID,FromARMeasure,ToARMeasure,Highway_Group',
+        returnGeometry: 'false',
+        ...versionParam(),
+        f:              'json',
+        token:          _token
+      });
+      try {
+        const resp = await fetch(`${CONFIG.mapServiceUrl}/116/query`, {
+          method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: body.toString()
+        });
+        const data = await resp.json();
+        if (data.error) {
+          const code = data.error.code;
+          if (code === 498 || code === 499) { _token = null; login(); }
+          console.error(`[queryHighwayGroups] API error ${code}: ${data.error.message}`);
+          return [];
+        }
+        return Array.isArray(data.features) ? data.features : [];
+      } catch (e) {
+        console.error('[queryHighwayGroups] error:', e.message);
+        return [];
+      }
+    }))).flat();
+
+    // Index features by RouteID so each pair only searches its own route's features
+    const byRoute = new Map();
+    for (const f of allFeatures) {
+      const rid = f.attributes?.RouteID;
+      if (rid == null) continue;
+      if (!byRoute.has(rid)) byRoute.set(rid, []);
+      byRoute.get(rid).push(f);
+    }
+    const map = new Map();
+    for (const p of rampPairs) {
+      const lookupId   = p.routeId.endsWith('_S') ? p.routeId.slice(0, -2) + '_P' : p.routeId;
+      const candidates = byRoute.get(lookupId) ?? [];
+      const match = candidates.find(f => {
+        const from = f.attributes?.FromARMeasure;
+        const to   = f.attributes?.ToARMeasure;
+        return from != null && to != null && p.arMeasure >= from && p.arMeasure <= to;
+      });
+      map.set(p.name, match?.attributes?.Highway_Group ?? '');
+    }
+    return map;
+  }
+
+  // Returns a Map of Ramp_Name → City_Code
+  async function queryCityCode(rampPairs) {
+    const CHUNK = 100;
+    const chunks = [];
+    for (let i = 0; i < rampPairs.length; i += CHUNK) chunks.push(rampPairs.slice(i, i + CHUNK));
+
+    const allFeatures = (await Promise.all(chunks.map(async chunk => {
+      // _S records: fall back to _P routeId — layers 116/74 only carry _P alignments
+      const orClauses = chunk.map(p => {
+        const rid = p.routeId.endsWith('_S') ? p.routeId.slice(0, -2) + '_P' : p.routeId;
+        return `(RouteID = '${rid}' AND FromARMeasure <= ${p.arMeasure} AND ToARMeasure >= ${p.arMeasure})`;
+      }).join(' OR ');
+      const body = new URLSearchParams({
+        where:          `(${orClauses})${getDateFilter()}`,
+        outFields:      'RouteID,FromARMeasure,ToARMeasure,City_Code',
+        returnGeometry: 'false',
+        ...versionParam(),
+        f:              'json',
+        token:          _token
+      });
+      try {
+        const resp = await fetch(`${CONFIG.mapServiceUrl}/74/query`, {
+          method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: body.toString()
+        });
+        const data = await resp.json();
+        if (data.error) {
+          const code = data.error.code;
+          if (code === 498 || code === 499) { _token = null; login(); }
+          console.error(`[queryCityCode] API error ${code}: ${data.error.message}`);
+          return [];
+        }
+        return Array.isArray(data.features) ? data.features : [];
+      } catch (e) {
+        console.error('[queryCityCode] error:', e.message);
+        return [];
+      }
+    }))).flat();
+
+    // Index features by RouteID so each pair only searches its own route's features
+    const byRoute = new Map();
+    for (const f of allFeatures) {
+      const rid = f.attributes?.RouteID;
+      if (rid == null) continue;
+      if (!byRoute.has(rid)) byRoute.set(rid, []);
+      byRoute.get(rid).push(f);
+    }
+    const map = new Map();
+    for (const p of rampPairs) {
+      const lookupId   = p.routeId.endsWith('_S') ? p.routeId.slice(0, -2) + '_P' : p.routeId;
+      const candidates = byRoute.get(lookupId) ?? [];
+      const match = candidates.find(f => {
+        const from = f.attributes?.FromARMeasure;
+        const to   = f.attributes?.ToARMeasure;
+        return from != null && to != null && p.arMeasure >= from && p.arMeasure <= to;
+      });
+      map.set(p.name, match?.attributes?.City_Code ?? '');
+    }
+    return map;
+  }
+
+  function showRampResults(type, message, names) {
+    const box = document.getElementById('rampResults');
+    box.style.display = 'block';
+
+    if (type === 'error') {
+      box.className = 'ramp-results error';
+      box.innerHTML = esc(message);
+    } else if (type === 'none') {
+      box.className = 'ramp-results';
+      box.innerHTML = `<span class="ramp-empty">No ramps found in this segment.</span>`;
+    } else {
+      _allResults  = names;
+      _currentPage = 0;
+      _generatedOn = new Date().toLocaleString();
+      renderPage();
+    }
+  }
+
+  function renderPage() {
+    const box       = document.getElementById('rampResults');
+    box.style.display = 'block';
+    box.className   = 'ramp-results';
+
+    const totalPages = Math.ceil(_allResults.length / PAGE_SIZE);
+    const page       = _currentPage;
+    const start      = page * PAGE_SIZE;
+    const pageSlice  = _allResults.slice(start, start + PAGE_SIZE);
+
+    const prevDis = page === 0              ? 'disabled' : '';
+    const nextDis = page === totalPages - 1 ? 'disabled' : '';
+
+    const pagination =
+      `<div class="report-action-bar">
+         <button class="export-btn" onclick="exportToExcel()">Export</button>
+         <div class="report-title">
+           <div class="report-title-line1">California Department of Transportation</div>
+           <div class="report-title-line2">Highway Locations</div>
+           ${_routeLabel ? `<div class="report-title-line3">Route: ${esc(_routeLabel)}&emsp;&emsp;&emsp;Direction: ${esc(_directionFrom)} &ndash; ${esc(_directionTo)}</div>` : ''}
+         </div>
+         <button class="export-btn" onclick="printAll()">Print</button>
+       </div>
+       <div class="ramp-pagination">
+         <div class="pagination-left">
+           <div style="display:flex;">
+             <button class="page-arrow" ${prevDis} onclick="changePageFirst()">&#9664;&#9664;</button>
+             <button class="page-arrow" ${prevDis} onclick="changePage(-1)">&#9664;</button>
+           </div>
+         </div>
+         <div class="pagination-right">
+           <div style="display:flex;">
+             <button class="page-arrow" ${nextDis} onclick="changePage(1)">&#9654;</button>
+             <button class="page-arrow" ${nextDis} onclick="changePageLast()">&#9654;&#9654;</button>
+           </div>
+         </div>
+       </div>`;
+
+    const header =
+      `<div class="ramp-list-header ramp-col-template">
+         <span>Dist</span>
+         <span>County</span>
+         <span>City</span>
+         <span></span>
+         <span>PM</span>
+         <span>HG</span>
+         <span>F</span>
+         <span>DISTANCE TO<br>NEXT POINT</span>
+         <span>Description</span>
+       </div>`;
+
+    const items = pageSlice.map((p, i) => {
+      const globalIdx = start + i;
+      const curOd     = parseFloat(p.odMeasure);
+      let nextEntry;
+      if (p.pmSuffix === 'R') {
+        nextEntry = _allResults.slice(globalIdx + 1).find(r => r.featureType !== 'R' && r.pmSuffix !== 'L');
+      } else if (p.pmSuffix === 'L') {
+        nextEntry = _allResults.slice(globalIdx + 1).find(r => r.featureType !== 'R' && r.pmSuffix !== 'R');
+      } else {
+        const rem = _allResults.slice(globalIdx + 1);
+        const firstNR = rem.find(r => r.featureType !== 'R');
+        nextEntry = (firstNR?.pmSuffix === 'R' || firstNR?.pmSuffix === 'L')
+          ? rem.find(r => r.featureType !== 'R' && r.pmSuffix !== 'R' && r.pmSuffix !== 'L')
+          : firstNR;
+      }
+      const nextOd    = nextEntry ? parseFloat(nextEntry.odMeasure) : NaN;
+      const length    = (!isNaN(curOd) && !isNaN(nextOd)) ? (nextOd - curOd).toFixed(3) : '';
+      return `<li class="ramp-item ramp-col-template">
+         <span>${p.district    ? esc(p.district)            : ''}</span>
+         <span>${p.county      ? esc(String(p.county))     : ''}</span>
+         <span>${p.cityCode    ? esc(p.cityCode)            : ''}</span>
+         <span style="text-align:right;">${p.pmPrefix && p.pmPrefix !== '.' ? esc(p.pmPrefix) : ''}</span>
+         <span>${esc(padMeasure(p.pmMeasure))}</span>
+         <span>${p.hwyGroup    ? esc(p.hwyGroup)            : ''}</span>
+         <span>${p.featureType}</span>
+         <span>${p.featureType !== 'R' && length !== '' ? padMeasure(length) : ''}</span>
+         <span>${p.desc        ? esc(p.desc)                : ''}</span>
+       </li>`;
+    }).join('');
+
+    const pageFooter = totalPages > 1
+      ? `<div class="page-info">Page ${page + 1} of ${totalPages}</div>`
+      : '';
+
+    const generatedFooter = `<div class="generated-on">Generated on ${esc(_generatedOn)}</div>`;
+    box.innerHTML = `${pagination}${header}<ul class="ramp-list">${items}</ul>${pageFooter}${generatedFooter}`;
+  }
+
+  function changePage(delta) {
+    const totalPages = Math.ceil(_allResults.length / PAGE_SIZE);
+    const next = _currentPage + delta;
+    if (next < 0 || next >= totalPages) return;
+    _currentPage = next;
+    renderPage();
+  }
+
+  function changePageFirst() {
+    if (_currentPage === 0) return;
+    _currentPage = 0;
+    renderPage();
+  }
+
+  function changePageLast() {
+    const last = Math.ceil(_allResults.length / PAGE_SIZE) - 1;
+    if (_currentPage === last) return;
+    _currentPage = last;
+    renderPage();
+  }
+
+  function printAll() {
+    const box = document.getElementById('rampResults');
+    const saved = box.innerHTML;
+
+    const reportTitle =
+      `<div class="report-action-bar">
+         <div></div>
+         <div class="report-title">
+           <div class="report-title-line1">California Department of Transportation</div>
+           <div class="report-title-line2">Highway Locations</div>
+           ${_routeLabel ? `<div class="report-title-line3">Route: ${esc(_routeLabel)}&emsp;&emsp;&emsp;Direction: ${esc(_directionFrom)} &ndash; ${esc(_directionTo)}</div>` : ''}
+         </div>
+         <div></div>
+       </div>`;
+
+    const header =
+      `<div class="ramp-list-header ramp-col-template">
+         <span>Dist</span>
+         <span>County</span>
+         <span>City</span>
+         <span></span>
+         <span>PM</span>
+         <span>HG</span>
+         <span>F</span>
+         <span>DISTANCE TO<br>NEXT POINT</span>
+         <span>Description</span>
+       </div>`;
+
+    const items = _allResults.map((p, i) => {
+      const curOd     = parseFloat(p.odMeasure);
+      let nextEntry;
+      if (p.pmSuffix === 'R') {
+        nextEntry = _allResults.slice(i + 1).find(r => r.featureType !== 'R' && r.pmSuffix !== 'L');
+      } else if (p.pmSuffix === 'L') {
+        nextEntry = _allResults.slice(i + 1).find(r => r.featureType !== 'R' && r.pmSuffix !== 'R');
+      } else {
+        const rem = _allResults.slice(i + 1);
+        const firstNR = rem.find(r => r.featureType !== 'R');
+        nextEntry = (firstNR?.pmSuffix === 'R' || firstNR?.pmSuffix === 'L')
+          ? rem.find(r => r.featureType !== 'R' && r.pmSuffix !== 'R' && r.pmSuffix !== 'L')
+          : firstNR;
+      }
+      const nextOd    = nextEntry ? parseFloat(nextEntry.odMeasure) : NaN;
+      const length    = (!isNaN(curOd) && !isNaN(nextOd)) ? (nextOd - curOd).toFixed(3) : '';
+      return `<li class="ramp-item ramp-col-template">
+         <span>${p.district    ? esc(p.district)            : ''}</span>
+         <span>${p.county      ? esc(String(p.county))     : ''}</span>
+         <span>${p.cityCode    ? esc(p.cityCode)            : ''}</span>
+         <span style="text-align:right;">${p.pmPrefix && p.pmPrefix !== '.' ? esc(p.pmPrefix) : ''}</span>
+         <span>${esc(padMeasure(p.pmMeasure))}</span>
+         <span>${p.hwyGroup    ? esc(p.hwyGroup)            : ''}</span>
+         <span>${p.featureType}</span>
+         <span>${p.featureType !== 'R' && length !== '' ? padMeasure(length) : ''}</span>
+         <span>${p.desc        ? esc(p.desc)                : ''}</span>
+       </li>`;
+    }).join('');
+
+    const generatedFooter = `<div class="generated-on">Generated on ${esc(_generatedOn)}</div>`;
+
+    box.innerHTML = `${reportTitle}${header}<ul class="ramp-list">${items}</ul>${generatedFooter}`;
+    window.addEventListener('afterprint', () => { box.innerHTML = saved; }, { once: true });
+    window.print();
+  }
+
+  function exportToExcel() {
+    if (_allResults.length === 0) return;
+
+    const headers = ['Dist', 'County', 'City', '', 'PM', 'HG', 'F', 'Distance To Next Point', 'Description'];
+
+    const rows = _allResults.map((p, i) => {
+      const curOd     = parseFloat(p.odMeasure);
+      let nextEntry;
+      if (p.pmSuffix === 'R') {
+        nextEntry = _allResults.slice(i + 1).find(r => r.featureType !== 'R' && r.pmSuffix !== 'L');
+      } else if (p.pmSuffix === 'L') {
+        nextEntry = _allResults.slice(i + 1).find(r => r.featureType !== 'R' && r.pmSuffix !== 'R');
+      } else {
+        const rem = _allResults.slice(i + 1);
+        const firstNR = rem.find(r => r.featureType !== 'R');
+        nextEntry = (firstNR?.pmSuffix === 'R' || firstNR?.pmSuffix === 'L')
+          ? rem.find(r => r.featureType !== 'R' && r.pmSuffix !== 'R' && r.pmSuffix !== 'L')
+          : firstNR;
+      }
+      const nextOd    = nextEntry ? parseFloat(nextEntry.odMeasure) : NaN;
+      const length    = (!isNaN(curOd) && !isNaN(nextOd)) ? (nextOd - curOd).toFixed(3) : '';
+      return [
+        p.district    ?? '',
+        p.county      ?? '',
+        p.cityCode    ?? '',
+        (p.pmPrefix && p.pmPrefix !== '.') ? p.pmPrefix : '',
+        padMeasure(p.pmMeasure),
+        p.hwyGroup    ?? '',
+        p.featureType ?? '',
+        p.featureType !== 'R' && length !== '' ? padMeasure(length) : '',
+        p.desc        ?? ''
+      ];
+    });
+
+    const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Highway Locations');
+    XLSX.writeFile(wb, 'highway_sequence_listing.xlsx');
+  }
+
+  function copyVal(btn, text) {
+    navigator.clipboard.writeText(text).then(() => {
+      btn.classList.add('copied');
+      setTimeout(() => btn.classList.remove('copied'), 1500);
+    });
+  }
+
+  function fmtDate(epochMs) {
+    if (epochMs == null) return '';
+    return new Date(epochMs).toLocaleDateString('en-US', {
+      year: 'numeric', month: '2-digit', day: '2-digit'
+    });
+  }
+
+  // Formats a numeric measure as NNN.NNN (3 digits each side of decimal)
+  function padMeasure(val) {
+    if (val === '' || val == null) return '';
+    const num = parseFloat(val);
+    if (isNaN(num)) return '';
+    const [intPart, decPart] = num.toFixed(3).split('.');
+    return intPart.padStart(3, '0') + '.' + decPart;
+  }
+
+  function esc(str) {
+    return str
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
+  function getDateFilter() {
+    const val = document.getElementById('refDate').value; // "YYYY-MM-DD"
+    if (!val) return '';
+    const ts = `TIMESTAMP '${val} 00:00:00'`;
+    return ` AND InventoryItemStartDate <= ${ts}` +
+           ` AND (InventoryItemEndDate IS NULL OR InventoryItemEndDate > ${ts})`;
+  }
+
+  function getIntersectionDateFilter() {
+    const val = document.getElementById('refDate').value;
+    if (!val) return '';
+    const ts = `TIMESTAMP '${val} 00:00:00'`;
+    return ` AND Int_Geometry_Begin_Date <= ${ts}` +
+           ` AND (Int_Geometry_End_Date IS NULL OR Int_Geometry_End_Date > ${ts})`;
+  }
+
+  // ── Bootstrap ─────────────────────────────────────────────────────────────
+  document.addEventListener('DOMContentLoaded', () => {
+    // Default reference date to today
+    const today = new Date().toISOString().slice(0, 10);
+    document.getElementById('refDate').value = today;
+
+    populateCounties();
+    setupValidation();
+    initAuth();
+  });
+</script>
+</body>
+</html>
