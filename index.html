@@ -38,11 +38,15 @@
     }
 
     .page-header {
-      position: relative;
       display: flex;
+      flex-direction: column;
       align-items: center;
-      justify-content: center;
       margin-bottom: 1.25rem;
+    }
+    .page-header-row {
+      position: relative;
+      width: 100%;
+      height: 2rem;
     }
 
     h1 {
@@ -473,16 +477,18 @@
   </div>
 
   <div class="page-header">
-    <div class="ref-date-wrap" id="refDateWrap" style="display:none;">
-      <label for="refDate" class="ref-date-lbl">Reference Date</label>
-      <input type="date" id="refDate" />
-    </div>
     <h1>Highway Sequence Listing</h1>
-    <div class="version-wrap" id="versionWrap" style="display:none;">
-      <label for="versionSelect" class="version-lbl">Version</label>
-      <select id="versionSelect">
-        <option value="">Default</option>
-      </select>
+    <div class="page-header-row">
+      <div class="ref-date-wrap" id="refDateWrap" style="display:none;">
+        <label for="refDate" class="ref-date-lbl">Reference Date</label>
+        <input type="date" id="refDate" />
+      </div>
+      <div class="version-wrap" id="versionWrap" style="display:none;">
+        <label for="versionSelect" class="version-lbl">Version</label>
+        <select id="versionSelect">
+          <option value="">Default</option>
+        </select>
+      </div>
     </div>
   </div>
 
