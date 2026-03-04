@@ -911,7 +911,7 @@
   }
 
   async function loadVersions() {
-    const vmsUrl = 'https://arcgis.rizing.dev/primary/rest/services/Caltrans/lrs_tsnr/VersionManagementServer';
+    const vmsUrl = CONFIG.vmsUrl;
     const sel = document.getElementById('versionSelect');
 
     let resp, data;
