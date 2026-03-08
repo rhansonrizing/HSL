@@ -47,6 +47,7 @@
       position: relative;
       width: 100%;
       height: 2rem;
+      margin-top: 0.5rem;
     }
 
     h1 {
@@ -267,7 +268,7 @@
 
     .ramp-col-template {
       display: grid;
-      grid-template-columns: 0.4fr 0.55fr 0.7fr 0.3fr 0.8fr 0.7fr 0.3fr 1.1fr 4fr;
+      grid-template-columns: 0.4fr 0.55fr 0.7fr 0.3fr 1.0fr 0.175fr 0.3fr 1.1fr 4fr;
       gap: 0.5rem;
       align-items: center;
     }
@@ -738,13 +739,7 @@
   }
 
   function parseHashParams(hash) {
-    const out = {};
-    hash.replace(/^#/, '').split('&').forEach(pair => {
-      const idx = pair.indexOf('=');
-      if (idx === -1) return;
-      out[decodeURIComponent(pair.slice(0, idx))] = decodeURIComponent(pair.slice(idx + 1));
-    });
-    return out;
+    return Object.fromEntries(new URLSearchParams(hash.replace(/^#/, '')));
   }
 
   function setAuthUI(authenticated) {
@@ -894,18 +889,19 @@
     clearResults();
 
     try {
-      const [[rampPairs, landmarkPairs, intersectionPairs], direction] = await Promise.all([
+      const [[rampPairs, landmarkPairs, intersectionPairs, equationPairs], direction] = await Promise.all([
         Promise.all([
           queryAttributeSet(segments, district),
           queryLandmarks(segments, routeSuffix, district),
-          queryIntersections(segments, district)
+          queryIntersections(segments, district),
+          queryEquationPoints(segments, district)
         ]),
         queryRouteDirection(routeNum)
       ]);
       _routeLabel    = paddedRoute;
       _directionFrom = direction.from;
       _directionTo   = direction.to;
-      const allPairs = sortWithIndependentAlignments([...rampPairs, ...landmarkPairs, ...intersectionPairs]);
+      const allPairs = sortWithIndependentAlignments([...rampPairs, ...landmarkPairs, ...intersectionPairs, ...equationPairs]);
       if (allPairs.length === 0) { showRampResults('none'); return; }
       await queryRampDescriptions(allPairs);
     } catch (err) {
@@ -1058,8 +1054,8 @@
         const j = i;
         while (i < pairs.length && (pairs[i].pmSuffix === 'R' || pairs[i].pmSuffix === 'L')) i++;
         const section = pairs.slice(j, i);
-        const rRecs = section.filter(p => p.pmSuffix === 'R').sort((a, b) => a.arMeasure - b.arMeasure);
-        const lRecs = section.filter(p => p.pmSuffix === 'L').sort((a, b) => a.arMeasure - b.arMeasure);
+        const rRecs = section.filter(p => p.pmSuffix === 'R');
+        const lRecs = section.filter(p => p.pmSuffix === 'L');
         result.push(...rRecs, ...lRecs);
       } else {
         result.push(pairs[i++]);
@@ -1108,14 +1104,14 @@
     clearResults();
 
     try {
-      const [[rampPairs, landmarkPairs, intersectionPairs], direction] = await Promise.all([
-        Promise.all([queryAttributeSet(segments), queryLandmarks(segments, routeSuffix), queryIntersections(segments)]),
+      const [[rampPairs, landmarkPairs, intersectionPairs, equationPairs], direction] = await Promise.all([
+        Promise.all([queryAttributeSet(segments), queryLandmarks(segments, routeSuffix), queryIntersections(segments), queryEquationPoints(segments)]),
         queryRouteDirection(routeNum)
       ]);
       _routeLabel    = routeNum;
       _directionFrom = direction.from;
       _directionTo   = direction.to;
-      const allPairs = sortWithIndependentAlignments([...rampPairs, ...landmarkPairs, ...intersectionPairs]);
+      const allPairs = sortWithIndependentAlignments([...rampPairs, ...landmarkPairs, ...intersectionPairs, ...equationPairs]);
       if (allPairs.length === 0) { showRampResults('none'); return; }
       await queryRampDescriptions(allPairs);
     } catch (err) {
@@ -1264,15 +1260,15 @@
         return;
       }
 
-      const [[rampPairs, landmarkPairs, intersectionPairs], direction] = await Promise.all([
-        Promise.all([queryAttributeSet(segments), queryLandmarks(segments, from.routeSuffix), queryIntersections(segments)]),
+      const [[rampPairs, landmarkPairs, intersectionPairs, equationPairs], direction] = await Promise.all([
+        Promise.all([queryAttributeSet(segments), queryLandmarks(segments, from.routeSuffix), queryIntersections(segments), queryEquationPoints(segments)]),
         queryRouteDirection(from.routeNum.padStart(3, '0'))
       ]);
       _routeLabel    = from.routeNum.padStart(3, '0');
       _directionFrom = direction.from;
       _directionTo   = direction.to;
 
-      const allPairs = sortWithIndependentAlignments([...rampPairs, ...landmarkPairs, ...intersectionPairs]);
+      const allPairs = sortWithIndependentAlignments([...rampPairs, ...landmarkPairs, ...intersectionPairs, ...equationPairs]);
 
       if (allPairs.length === 0) {
         showRampResults('none');
@@ -1346,6 +1342,7 @@
     const where = segClauses.length === 1
       ? segClauses[0].slice(1, -1) + districtFilter + ' AND LRSToDate IS NULL' + dateFilter
       : `(${segClauses.join(' OR ')})${districtFilter} AND LRSToDate IS NULL${dateFilter}`;
+
 
     // Layer 132 is a point event layer — use standard feature layer query
     const body = new URLSearchParams({
@@ -1424,6 +1421,11 @@
   }
 
   async function queryIntersections(segments, district = null) {
+    // District mode: spatial approach finds wrong-district intersections because
+    // segments cover the full route (0–999). Query layer 151 directly instead.
+    if (district != null) {
+      return await queryIntersectionsByDistrict(segments, district);
+    }
     try {
       // ── Step 1: measureToGeometry — get polyline geometry for each segment ──
       const geoLocations = segments.map(({ fromBest, toBest }) => ({
@@ -1539,7 +1541,7 @@
       // ── Step 5: Query layer 151 (Intersection Detail, chunked) ─────────────
       const measuredIds    = Array.from(idToMeasure.keys());
       const dateFilter     = getIntersectionDateFilter();
-      const districtFilter = district != null ? ` AND District_Code = '${String(parseInt(district, 10))}'` : '';
+      const districtFilter = district != null ? ` AND District_Code = '${parseInt(district, 10)}'` : '';
       const detailChunks   = [];
       for (let i = 0; i < measuredIds.length; i += INT_CHUNK) detailChunks.push(measuredIds.slice(i, i + INT_CHUNK));
 
@@ -1588,9 +1590,7 @@
       for (const id of measuredIds) {
         const detail  = detailMap.get(id);
         if (!detail) continue;
-        const measure   = idToMeasure.get(id);
-        const isPrimary = measure.routeId.endsWith('_P');
-        const pmRouteId = detail.county + detail.routeNum.padStart(3, '0') + detail.routeSuffix + detail.pmPrefix + detail.pmSuffix + (isPrimary ? 'R' : 'L');
+        const measure = idToMeasure.get(id);
         pairs.push({
           type:        'intersection',
           name:        String(id),
@@ -1603,7 +1603,6 @@
           pmPrefix:    detail.pmPrefix,
           pmSuffix:    detail.pmSuffix,
           pmMeasure:   detail.pmMeasure,
-          pmRouteId,
           startDate:   null,
           endDate:     null
         });
@@ -1612,6 +1611,152 @@
 
     } catch (e) {
       console.error('[queryIntersections] error:', e.message);
+      return [];
+    }
+  }
+
+  // District-mode intersection query: layer 151 by district+route → layer 0 for geometry → g2m for ARMeasure
+  async function queryIntersectionsByDistrict(segments, district) {
+    try {
+      const routeNums = new Set();
+      for (const { fromBest } of segments) {
+        const m = fromBest.routeId.match(/\d{3}/);
+        if (m) routeNums.add(m[0]);
+      }
+      if (routeNums.size === 0) return [];
+
+      const dateFilter   = getIntersectionDateFilter();
+      const districtCode = String(parseInt(district, 10)); // '07' → '7'
+      const segRouteIds  = new Set(segments.map(s => s.fromBest.routeId));
+      const detailMap    = new Map(); // INTERSECTION_ID → attributes
+      const INT_CHUNK    = 200;
+
+      const outFields151 = 'INTERSECTION_ID,Intersection_Name,County_Code,District_Code,Main_RouteNum,Main_RouteSuffix,Main_PMPrefix,Main_PMSuffix,Main_PMMeasure,Cross_RouteNum';
+      const baseFilter   = `District_Code = '${districtCode}' AND LRS_DATE_RETIRE IS NULL${dateFilter}`;
+      const routeNumsArr = [...routeNums];
+
+      const fetch151 = async (where) => {
+        const body = new URLSearchParams({
+          where,
+          outFields:      outFields151,
+          returnGeometry: 'false',
+          ...versionParam(),
+          f:     'json',
+          token: _token
+        });
+        const data = await fetch(`${CONFIG.mapServiceUrl}/151/query`,
+          { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: body.toString() }
+        ).then(r => r.json()).catch(() => ({}));
+        if (data.error) {
+          console.error('[queryIntersectionsByDistrict] layer 151 error:', data.error.code, data.error.message);
+          return [];
+        }
+        return data.features ?? [];
+      };
+
+      // Fetch main and cross queries for all route numbers in parallel
+      const [mainResults, crossResults] = await Promise.all([
+        Promise.all(routeNumsArr.map(n => fetch151(`${baseFilter} AND Main_RouteNum = '${n}'`))).then(r => r.flat()),
+        Promise.all(routeNumsArr.map(n => fetch151(`${baseFilter} AND Cross_RouteNum = '${n}'`))).then(r => r.flat())
+      ]);
+
+      const toDetail = (a, isCross) => ({
+        desc:        a.Intersection_Name ?? '',
+        county:      a.County_Code       ?? '',
+        district:    a.District_Code ? String(a.District_Code).padStart(2, '0') : '',
+        routeSuffix: a.Main_RouteSuffix  ?? '.',
+        pmPrefix:    a.Main_PMPrefix     ?? '.',
+        pmSuffix:    a.Main_PMSuffix     ?? '.',
+        pmMeasure:   a.Main_PMMeasure    ?? '',
+        isCross
+      });
+
+      // Main results: isCross = Cross_RouteNum is populated on the record
+      for (const f of mainResults) {
+        const a = f.attributes ?? {};
+        if (a.INTERSECTION_ID == null) continue;
+        detailMap.set(a.INTERSECTION_ID, toDetail(a, a.Cross_RouteNum != null));
+      }
+      // Cross results: only fill IDs not already found via main query
+      for (const f of crossResults) {
+        const a = f.attributes ?? {};
+        if (a.INTERSECTION_ID == null || detailMap.has(a.INTERSECTION_ID)) continue;
+        detailMap.set(a.INTERSECTION_ID, toDetail(a, false));
+      }
+      if (detailMap.size === 0) return [];
+
+      // Query layer 0 for point geometries by INTERSECTION_ID
+      const idList   = Array.from(detailMap.keys());
+      const idChunks = [];
+      for (let i = 0; i < idList.length; i += INT_CHUNK) idChunks.push(idList.slice(i, i + INT_CHUNK));
+
+      const geometryMap = new Map(); // INTERSECTION_ID → point geometry
+      for (const chunk of idChunks) {
+        const chunkList = chunk.map(id => `'${String(id).replace(/'/g, "''")}'`).join(',');
+        const qBody = new URLSearchParams({
+          where:          `INTERSECTION_ID IN (${chunkList})`,
+          outFields:      'INTERSECTION_ID',
+          returnGeometry: 'true',
+          ...versionParam(),
+          f:     'json',
+          token: _token
+        });
+        const qData = await fetch(`${CONFIG.mapServiceUrl}/0/query`,
+          { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: qBody.toString() }
+        ).then(r => r.json()).catch(() => ({}));
+        for (const f of qData.features ?? []) {
+          const id = f.attributes?.INTERSECTION_ID;
+          if (id != null && f.geometry && !geometryMap.has(id)) geometryMap.set(id, f.geometry);
+        }
+      }
+      if (geometryMap.size === 0) return [];
+
+      // geometryToMeasure on layer 4 to get ARMeasure
+      const measuredIds = Array.from(geometryMap.keys());
+      const allGeoms    = measuredIds.map(id => geometryMap.get(id));
+      const g2mBody = new URLSearchParams({
+        locations:  JSON.stringify(allGeoms.map(g => ({ geometry: g }))),
+        tolerance:  '50',
+        ...versionParam(),
+        f:     'json',
+        token: _token
+      });
+      const g2mData = await fetch(
+        `${CONFIG.mapServiceUrl}/exts/LRServer/networkLayers/4/geometryToMeasure`,
+        { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: g2mBody.toString() }
+      ).then(r => r.json()).catch(() => ({ locations: [] }));
+
+      const pairs = [];
+      (g2mData.locations ?? []).forEach((loc, idx) => {
+        const id      = measuredIds[idx];
+        const detail  = detailMap.get(id);
+        if (!detail) return;
+        const results = loc.results ?? [];
+        const result  = results.find(r => segRouteIds.has(r.routeId) && r.distance === 0)
+                     ?? results.find(r => segRouteIds.has(r.routeId))
+                     ?? results[0];
+        if (!result?.routeId || result.measure == null) return;
+        pairs.push({
+          type:        'intersection',
+          name:        String(id),
+          desc:        detail.desc,
+          routeId:     result.routeId,
+          arMeasure:   result.measure,
+          county:      detail.county,
+          district:    detail.district,
+          routeSuffix: '',
+          pmPrefix:    detail.pmPrefix,
+          pmSuffix:    detail.pmSuffix,
+          pmMeasure:   detail.pmMeasure,
+          isCross:     detail.isCross,
+          startDate:   null,
+          endDate:     null
+        });
+      });
+      return pairs;
+
+    } catch (e) {
+      console.error('[queryIntersectionsByDistrict] error:', e.message);
       return [];
     }
   }
@@ -1713,16 +1858,83 @@
     return Array.from(nameMap.values());
   }
 
+  async function queryEquationPoints(segments, district = null) {
+    const segClauses = segments.map(({ fromBest, toBest }) => {
+      const fromM = Math.min(fromBest.measure, toBest.measure) - 0.005;
+      const toM   = Math.max(fromBest.measure, toBest.measure) + 0.005;
+      return `(routeId = '${fromBest.routeId}' AND fromMeasure >= ${fromM} AND fromMeasure <= ${toM})`;
+    });
+
+    const uniqueClauses  = [...new Set(segClauses)];
+    const districtFilter = district != null ? ` AND District_Code = ${district}` : '';
+    const where = uniqueClauses.length === 1
+      ? uniqueClauses[0].slice(1, -1) + ' AND LRSToDate IS NULL' + districtFilter
+      : `(${uniqueClauses.join(' OR ')}) AND LRSToDate IS NULL${districtFilter}`;
+
+    const body = new URLSearchParams({
+      where,
+      outFields:      'OBJECTID,routeId,fromMeasure,District_Code,hslDescription,PMMeasure,ODMeasure,PMSuffix,County',
+      orderByFields:  'fromMeasure ASC',
+      returnGeometry: 'false',
+      ...versionParam(),
+      f:              'json',
+      token:          _token
+    });
+
+    let resp, data;
+    try {
+      resp = await fetch(`${CONFIG.mapServiceUrl}/305/query`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body:    body.toString()
+      });
+      data = await resp.json();
+    } catch (e) {
+      console.error('[queryEquationPoints] error:', e.message);
+      return [];
+    }
+
+    if (data.error) {
+      const code = data.error.code;
+      if (code === 498 || code === 499) { _token = null; login(); return []; }
+      console.error(`[queryEquationPoints] API error ${code}: ${data.error.message}`);
+      return [];
+    }
+
+    const features = data.features;
+    if (!Array.isArray(features)) return [];
+    if (data.exceededTransferLimit) console.warn('[queryEquationPoints] exceededTransferLimit — results truncated.');
+
+    return features.map(f => {
+      const a = f.attributes ?? {};
+      return {
+        type:        'equation',
+        name:        String(a.OBJECTID),
+        desc:        a.hslDescription ?? '',
+        routeId:     a.routeId,
+        arMeasure:   a.fromMeasure,
+        county:      a.County      ?? '',
+        district:    a.District_Code != null ? String(a.District_Code).padStart(2, '0') : '',
+        routeSuffix: '',
+        pmPrefix:    '.',
+        pmSuffix:    a.PMSuffix    ?? '.',
+        pmMeasure:   a.PMMeasure   ?? '',
+        odMeasure:   a.ODMeasure   != null ? String(a.ODMeasure) : '',
+        startDate:   null,
+        endDate:     null
+      };
+    });
+  }
+
   async function queryRampDescriptions(allPairs) {
-    // Only query layer 131 for ramp records — landmarks already have desc set
-    const descMap = new Map();
     const rampsOnly = allPairs.filter(p => p.type === 'ramp');
 
-    if (rampsOnly.length > 0) {
+    const fetchDescriptions = async () => {
+      const descMap = new Map();
+      if (rampsOnly.length === 0) return descMap;
       const CHUNK = 100;
       const chunks = [];
       for (let i = 0; i < rampsOnly.length; i += CHUNK) chunks.push(rampsOnly.slice(i, i + CHUNK));
-
       const allDescFeatures = (await Promise.all(chunks.map(async chunk => {
         const inList = chunk.map(p => `'${p.name.replace(/'/g, "''")}'`).join(', ');
         const body = new URLSearchParams({
@@ -1750,23 +1962,26 @@
           return [];
         }
       }))).flat();
-
       for (const f of allDescFeatures) {
         const n = f.attributes?.Ramp_Name;
         const d = f.attributes?.Ramp_Description;
         if (n != null && !descMap.has(n)) descMap.set(n, d ?? '');
       }
-    }
+      return descMap;
+    };
 
-    const [hwyMap, cityMap, odMap] = await Promise.all([
-      queryHighwayGroups(allPairs),
-      queryCityCode(allPairs),
+    const [descMap, hwyMap, cityMap, odMap] = await Promise.all([
+      fetchDescriptions(),
+      queryRangeLayer(allPairs, 116, 'Highway_Group'),
+      queryRangeLayer(allPairs, 74,  'City_Code'),
       translateToOD(allPairs)
     ]);
 
     const results = allPairs.map(p => ({
       name:        p.name,
-      featureType: p.type === 'landmark' ? 'H' : p.type === 'intersection' ? 'I' : 'R',
+      featureType: (p.type === 'landmark' || p.type === 'equation') ? 'H' : p.type === 'intersection' ? 'I' : 'R',
+      isEquation:  p.type === 'equation',
+      isCross:     p.isCross ?? false,
       desc:        p.type === 'ramp' ? (descMap.get(p.name) ?? '') : p.desc,
       hwyGroup:    hwyMap.get(p.name)  ?? '',
       cityCode:    cityMap.get(p.name) ?? '',
@@ -1829,45 +2044,44 @@
     return resultMap;
   }
 
-  // Returns a Map of Ramp_Name → Highway_Group
-  async function queryHighwayGroups(rampPairs) {
+  // Returns a Map of name → fieldName value for range-based event layers (e.g. 116, 74)
+  // _S records fall back to _P routeId — layers 116/74 only carry _P alignments
+  async function queryRangeLayer(pairs, layerNum, fieldName) {
     const CHUNK = 100;
     const chunks = [];
-    for (let i = 0; i < rampPairs.length; i += CHUNK) chunks.push(rampPairs.slice(i, i + CHUNK));
+    for (let i = 0; i < pairs.length; i += CHUNK) chunks.push(pairs.slice(i, i + CHUNK));
 
     const allFeatures = (await Promise.all(chunks.map(async chunk => {
-      // _S records: fall back to _P routeId — layers 116/74 only carry _P alignments
       const orClauses = chunk.map(p => {
         const rid = p.routeId.endsWith('_S') ? p.routeId.slice(0, -2) + '_P' : p.routeId;
         return `(RouteID = '${rid}' AND FromARMeasure <= ${p.arMeasure} AND ToARMeasure >= ${p.arMeasure})`;
       }).join(' OR ');
       const body = new URLSearchParams({
         where:          `(${orClauses})${getDateFilter()}`,
-        outFields:      'RouteID,FromARMeasure,ToARMeasure,Highway_Group',
+        outFields:      `RouteID,FromARMeasure,ToARMeasure,${fieldName}`,
         returnGeometry: 'false',
         ...versionParam(),
         f:              'json',
         token:          _token
       });
       try {
-        const resp = await fetch(`${CONFIG.mapServiceUrl}/116/query`, {
+        const resp = await fetch(`${CONFIG.mapServiceUrl}/${layerNum}/query`, {
           method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: body.toString()
         });
         const data = await resp.json();
         if (data.error) {
           const code = data.error.code;
           if (code === 498 || code === 499) { _token = null; login(); }
-          console.error(`[queryHighwayGroups] API error ${code}: ${data.error.message}`);
+          console.error(`[queryRangeLayer/${layerNum}] API error ${code}: ${data.error.message}`);
           return [];
         }
         return Array.isArray(data.features) ? data.features : [];
       } catch (e) {
-        console.error('[queryHighwayGroups] error:', e.message);
+        console.error(`[queryRangeLayer/${layerNum}] error:`, e.message);
         return [];
       }
     }))).flat();
 
-    // Index features by RouteID so each pair only searches its own route's features
     const byRoute = new Map();
     for (const f of allFeatures) {
       const rid = f.attributes?.RouteID;
@@ -1876,7 +2090,7 @@
       byRoute.get(rid).push(f);
     }
     const map = new Map();
-    for (const p of rampPairs) {
+    for (const p of pairs) {
       const lookupId   = p.routeId.endsWith('_S') ? p.routeId.slice(0, -2) + '_P' : p.routeId;
       const candidates = byRoute.get(lookupId) ?? [];
       const match = candidates.find(f => {
@@ -1884,67 +2098,7 @@
         const to   = f.attributes?.ToARMeasure;
         return from != null && to != null && p.arMeasure >= from && p.arMeasure <= to;
       });
-      map.set(p.name, match?.attributes?.Highway_Group ?? '');
-    }
-    return map;
-  }
-
-  // Returns a Map of Ramp_Name → City_Code
-  async function queryCityCode(rampPairs) {
-    const CHUNK = 100;
-    const chunks = [];
-    for (let i = 0; i < rampPairs.length; i += CHUNK) chunks.push(rampPairs.slice(i, i + CHUNK));
-
-    const allFeatures = (await Promise.all(chunks.map(async chunk => {
-      // _S records: fall back to _P routeId — layers 116/74 only carry _P alignments
-      const orClauses = chunk.map(p => {
-        const rid = p.routeId.endsWith('_S') ? p.routeId.slice(0, -2) + '_P' : p.routeId;
-        return `(RouteID = '${rid}' AND FromARMeasure <= ${p.arMeasure} AND ToARMeasure >= ${p.arMeasure})`;
-      }).join(' OR ');
-      const body = new URLSearchParams({
-        where:          `(${orClauses})${getDateFilter()}`,
-        outFields:      'RouteID,FromARMeasure,ToARMeasure,City_Code',
-        returnGeometry: 'false',
-        ...versionParam(),
-        f:              'json',
-        token:          _token
-      });
-      try {
-        const resp = await fetch(`${CONFIG.mapServiceUrl}/74/query`, {
-          method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: body.toString()
-        });
-        const data = await resp.json();
-        if (data.error) {
-          const code = data.error.code;
-          if (code === 498 || code === 499) { _token = null; login(); }
-          console.error(`[queryCityCode] API error ${code}: ${data.error.message}`);
-          return [];
-        }
-        return Array.isArray(data.features) ? data.features : [];
-      } catch (e) {
-        console.error('[queryCityCode] error:', e.message);
-        return [];
-      }
-    }))).flat();
-
-    // Index features by RouteID so each pair only searches its own route's features
-    const byRoute = new Map();
-    for (const f of allFeatures) {
-      const rid = f.attributes?.RouteID;
-      if (rid == null) continue;
-      if (!byRoute.has(rid)) byRoute.set(rid, []);
-      byRoute.get(rid).push(f);
-    }
-    const map = new Map();
-    for (const p of rampPairs) {
-      const lookupId   = p.routeId.endsWith('_S') ? p.routeId.slice(0, -2) + '_P' : p.routeId;
-      const candidates = byRoute.get(lookupId) ?? [];
-      const match = candidates.find(f => {
-        const from = f.attributes?.FromARMeasure;
-        const to   = f.attributes?.ToARMeasure;
-        return from != null && to != null && p.arMeasure >= from && p.arMeasure <= to;
-      });
-      map.set(p.name, match?.attributes?.City_Code ?? '');
+      map.set(p.name, match?.attributes?.[fieldName] ?? '');
     }
     return map;
   }
@@ -1965,6 +2119,70 @@
       _generatedOn = new Date().toLocaleString();
       renderPage();
     }
+  }
+
+  // Returns an array of OD length strings indexed to results ('' when not computable)
+  function computeLengths(results) {
+    return results.map((p, i) => {
+      const curOd = parseFloat(p.odMeasure);
+      let nextEntry;
+      if (p.pmSuffix === 'R') {
+        nextEntry = results.slice(i + 1).find(r => r.featureType !== 'R' && r.featureType !== 'I' && r.pmSuffix !== 'L');
+      } else if (p.pmSuffix === 'L') {
+        nextEntry = results.slice(i + 1).find(r => r.featureType !== 'R' && r.featureType !== 'I' && r.pmSuffix !== 'R');
+      } else {
+        const rem = results.slice(i + 1);
+        const firstNR = rem.find(r => r.featureType !== 'R' && r.featureType !== 'I');
+        nextEntry = (firstNR?.pmSuffix === 'R' || firstNR?.pmSuffix === 'L')
+          ? rem.find(r => r.featureType !== 'R' && r.featureType !== 'I' && r.pmSuffix !== 'R' && r.pmSuffix !== 'L')
+          : firstNR;
+      }
+      const nextOd = nextEntry ? parseFloat(nextEntry.odMeasure) : NaN;
+      return (!isNaN(curOd) && !isNaN(nextOd)) ? (nextOd - curOd).toFixed(3) : '';
+    });
+  }
+
+  // Renders a single result row as an HTML <li> string
+  function renderItem(p, idx, secondEq, lengths) {
+    const length = lengths[idx];
+    if (p.isEquation && !secondEq.has(idx)) {
+      return `<li class="ramp-item ramp-col-template">
+         <span></span>
+         <span></span>
+         <span></span>
+         <span style="text-align:right;">${p.pmSuffix && p.pmSuffix !== '.' ? esc(p.pmSuffix) : ''}</span>
+         <span>${esc(padMeasure(p.pmMeasure))}</span>
+         <span style="grid-column: span 2; white-space: nowrap;">EQUATES TO</span>
+         <span></span>
+         <span></span>
+       </li>`;
+    }
+    return `<li class="ramp-item ramp-col-template">
+         <span>${p.district    ? esc(p.district)        : ''}</span>
+         <span>${p.county      ? esc(String(p.county)) : ''}</span>
+         <span>${p.cityCode    ? esc(p.cityCode)        : ''}</span>
+         <span style="text-align:right;">${p.pmPrefix && p.pmPrefix !== '.' ? esc(p.pmPrefix) : ''}</span>
+         <span>${esc(padMeasure(p.pmMeasure))}${secondEq.has(idx) ? ' E' : ''}</span>
+         <span>${p.hwyGroup    ? esc(p.hwyGroup)        : ''}</span>
+         <span>${p.featureType}</span>
+         <span style="display:block;text-align:center;">${p.isCross ? '*P*' : p.featureType !== 'R' && p.featureType !== 'I' && (!p.isEquation || secondEq.has(idx)) && length !== '' ? padMeasure(length) : ''}</span>
+         <span>${p.desc        ? esc(p.desc)            : ''}</span>
+       </li>`;
+  }
+
+  // Returns a Set of _allResults indices that are the 2nd equation point of their pair.
+  // Equation points always come in pairs; counted independently per pmSuffix group.
+  function computeSecondEqIndices(results) {
+    const secondEq     = new Set();
+    const countByGroup = new Map();
+    results.forEach((p, i) => {
+      if (!p.isEquation) return;
+      const key = p.pmSuffix ?? '.';
+      const cnt = (countByGroup.get(key) ?? 0) + 1;
+      countByGroup.set(key, cnt);
+      if (cnt % 2 === 0) secondEq.add(i);
+    });
+    return secondEq;
   }
 
   function renderPage() {
@@ -2018,35 +2236,9 @@
          <span>Description</span>
        </div>`;
 
-    const items = pageSlice.map((p, i) => {
-      const globalIdx = start + i;
-      const curOd     = parseFloat(p.odMeasure);
-      let nextEntry;
-      if (p.pmSuffix === 'R') {
-        nextEntry = _allResults.slice(globalIdx + 1).find(r => r.featureType !== 'R' && r.pmSuffix !== 'L');
-      } else if (p.pmSuffix === 'L') {
-        nextEntry = _allResults.slice(globalIdx + 1).find(r => r.featureType !== 'R' && r.pmSuffix !== 'R');
-      } else {
-        const rem = _allResults.slice(globalIdx + 1);
-        const firstNR = rem.find(r => r.featureType !== 'R');
-        nextEntry = (firstNR?.pmSuffix === 'R' || firstNR?.pmSuffix === 'L')
-          ? rem.find(r => r.featureType !== 'R' && r.pmSuffix !== 'R' && r.pmSuffix !== 'L')
-          : firstNR;
-      }
-      const nextOd    = nextEntry ? parseFloat(nextEntry.odMeasure) : NaN;
-      const length    = (!isNaN(curOd) && !isNaN(nextOd)) ? (nextOd - curOd).toFixed(3) : '';
-      return `<li class="ramp-item ramp-col-template">
-         <span>${p.district    ? esc(p.district)            : ''}</span>
-         <span>${p.county      ? esc(String(p.county))     : ''}</span>
-         <span>${p.cityCode    ? esc(p.cityCode)            : ''}</span>
-         <span style="text-align:right;">${p.pmPrefix && p.pmPrefix !== '.' ? esc(p.pmPrefix) : ''}</span>
-         <span>${esc(padMeasure(p.pmMeasure))}</span>
-         <span>${p.hwyGroup    ? esc(p.hwyGroup)            : ''}</span>
-         <span>${p.featureType}</span>
-         <span>${p.featureType !== 'R' && length !== '' ? padMeasure(length) : ''}</span>
-         <span>${p.desc        ? esc(p.desc)                : ''}</span>
-       </li>`;
-    }).join('');
+    const secondEq = computeSecondEqIndices(_allResults);
+    const lengths  = computeLengths(_allResults);
+    const items = pageSlice.map((p, i) => renderItem(p, start + i, secondEq, lengths)).join('');
 
     const pageFooter = totalPages > 1
       ? `<div class="page-info">Page ${page + 1} of ${totalPages}</div>`
@@ -2105,34 +2297,9 @@
          <span>Description</span>
        </div>`;
 
-    const items = _allResults.map((p, i) => {
-      const curOd     = parseFloat(p.odMeasure);
-      let nextEntry;
-      if (p.pmSuffix === 'R') {
-        nextEntry = _allResults.slice(i + 1).find(r => r.featureType !== 'R' && r.pmSuffix !== 'L');
-      } else if (p.pmSuffix === 'L') {
-        nextEntry = _allResults.slice(i + 1).find(r => r.featureType !== 'R' && r.pmSuffix !== 'R');
-      } else {
-        const rem = _allResults.slice(i + 1);
-        const firstNR = rem.find(r => r.featureType !== 'R');
-        nextEntry = (firstNR?.pmSuffix === 'R' || firstNR?.pmSuffix === 'L')
-          ? rem.find(r => r.featureType !== 'R' && r.pmSuffix !== 'R' && r.pmSuffix !== 'L')
-          : firstNR;
-      }
-      const nextOd    = nextEntry ? parseFloat(nextEntry.odMeasure) : NaN;
-      const length    = (!isNaN(curOd) && !isNaN(nextOd)) ? (nextOd - curOd).toFixed(3) : '';
-      return `<li class="ramp-item ramp-col-template">
-         <span>${p.district    ? esc(p.district)            : ''}</span>
-         <span>${p.county      ? esc(String(p.county))     : ''}</span>
-         <span>${p.cityCode    ? esc(p.cityCode)            : ''}</span>
-         <span style="text-align:right;">${p.pmPrefix && p.pmPrefix !== '.' ? esc(p.pmPrefix) : ''}</span>
-         <span>${esc(padMeasure(p.pmMeasure))}</span>
-         <span>${p.hwyGroup    ? esc(p.hwyGroup)            : ''}</span>
-         <span>${p.featureType}</span>
-         <span>${p.featureType !== 'R' && length !== '' ? padMeasure(length) : ''}</span>
-         <span>${p.desc        ? esc(p.desc)                : ''}</span>
-       </li>`;
-    }).join('');
+    const secondEq = computeSecondEqIndices(_allResults);
+    const lengths  = computeLengths(_allResults);
+    const items = _allResults.map((p, i) => renderItem(p, i, secondEq, lengths)).join('');
 
     const generatedFooter = `<div class="generated-on">Generated on ${esc(_generatedOn)}</div>`;
 
@@ -2144,33 +2311,34 @@
   function exportToExcel() {
     if (_allResults.length === 0) return;
 
-    const headers = ['Dist', 'County', 'City', '', 'PM', 'HG', 'F', 'Distance To Next Point', 'Description'];
+    const headers  = ['Dist', 'County', 'City', '', 'PM', 'HG', 'F', 'Distance To Next Point', 'Description'];
+    const secondEq = computeSecondEqIndices(_allResults);
+    const lengths  = computeLengths(_allResults);
 
     const rows = _allResults.map((p, i) => {
-      const curOd     = parseFloat(p.odMeasure);
-      let nextEntry;
-      if (p.pmSuffix === 'R') {
-        nextEntry = _allResults.slice(i + 1).find(r => r.featureType !== 'R' && r.pmSuffix !== 'L');
-      } else if (p.pmSuffix === 'L') {
-        nextEntry = _allResults.slice(i + 1).find(r => r.featureType !== 'R' && r.pmSuffix !== 'R');
-      } else {
-        const rem = _allResults.slice(i + 1);
-        const firstNR = rem.find(r => r.featureType !== 'R');
-        nextEntry = (firstNR?.pmSuffix === 'R' || firstNR?.pmSuffix === 'L')
-          ? rem.find(r => r.featureType !== 'R' && r.pmSuffix !== 'R' && r.pmSuffix !== 'L')
-          : firstNR;
+      const length = lengths[i];
+      if (p.isEquation && !secondEq.has(i)) {
+        return [
+          '',
+          '',
+          '',
+          (p.pmSuffix && p.pmSuffix !== '.') ? p.pmSuffix : '',
+          padMeasure(p.pmMeasure),
+          'EQUATES TO',
+          '',
+          '',
+          ''
+        ];
       }
-      const nextOd    = nextEntry ? parseFloat(nextEntry.odMeasure) : NaN;
-      const length    = (!isNaN(curOd) && !isNaN(nextOd)) ? (nextOd - curOd).toFixed(3) : '';
       return [
         p.district    ?? '',
         p.county      ?? '',
         p.cityCode    ?? '',
         (p.pmPrefix && p.pmPrefix !== '.') ? p.pmPrefix : '',
-        padMeasure(p.pmMeasure),
+        padMeasure(p.pmMeasure) + (secondEq.has(i) ? 'E' : ''),
         p.hwyGroup    ?? '',
         p.featureType ?? '',
-        p.featureType !== 'R' && length !== '' ? padMeasure(length) : '',
+        p.isCross ? '*P*' : p.featureType !== 'R' && p.featureType !== 'I' && (!p.isEquation || secondEq.has(i)) && length !== '' ? padMeasure(length) : '',
         p.desc        ?? ''
       ];
     });
@@ -2185,13 +2353,6 @@
     navigator.clipboard.writeText(text).then(() => {
       btn.classList.add('copied');
       setTimeout(() => btn.classList.remove('copied'), 1500);
-    });
-  }
-
-  function fmtDate(epochMs) {
-    if (epochMs == null) return '';
-    return new Date(epochMs).toLocaleDateString('en-US', {
-      year: 'numeric', month: '2-digit', day: '2-digit'
     });
   }
 
