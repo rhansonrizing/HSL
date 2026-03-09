@@ -268,7 +268,7 @@
 
     .ramp-col-template {
       display: grid;
-      grid-template-columns: 0.4fr 0.55fr 0.7fr 0.3fr 1.0fr 0.175fr 0.3fr 1.1fr 4fr;
+      grid-template-columns: 0.4fr 0.55fr 0.7fr 0.3fr 8ch 0.4fr 0.175fr 0.3fr 1.1fr 4fr;
       gap: 0.5rem;
       align-items: center;
     }
@@ -894,7 +894,7 @@
           queryAttributeSet(segments, district),
           queryLandmarks(segments, routeSuffix, district),
           queryIntersections(segments, district),
-          queryEquationPoints(segments, district)
+          queryEquationPoints(segments, district),
         ]),
         queryRouteDirection(routeNum)
       ]);
@@ -1868,12 +1868,12 @@
     const uniqueClauses  = [...new Set(segClauses)];
     const districtFilter = district != null ? ` AND District_Code = ${district}` : '';
     const where = uniqueClauses.length === 1
-      ? uniqueClauses[0].slice(1, -1) + ' AND LRSToDate IS NULL' + districtFilter
-      : `(${uniqueClauses.join(' OR ')}) AND LRSToDate IS NULL${districtFilter}`;
+      ? uniqueClauses[0].slice(1, -1) + ' AND hslDescription IS NOT NULL AND LRSToDate IS NULL' + districtFilter
+      : `(${uniqueClauses.join(' OR ')}) AND hslDescription IS NOT NULL AND LRSToDate IS NULL${districtFilter}`;
 
     const body = new URLSearchParams({
       where,
-      outFields:      'OBJECTID,routeId,fromMeasure,District_Code,hslDescription,PMMeasure,ODMeasure,PMSuffix,County',
+      outFields:      'OBJECTID,routeId,fromMeasure,District_Code,hslDescription,PMMeasure,PMPrefix,PMSuffix,ODMeasure,County',
       orderByFields:  'fromMeasure ASC',
       returnGeometry: 'false',
       ...versionParam(),
@@ -1884,9 +1884,7 @@
     let resp, data;
     try {
       resp = await fetch(`${CONFIG.mapServiceUrl}/305/query`, {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body:    body.toString()
+        method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: body.toString()
       });
       data = await resp.json();
     } catch (e) {
@@ -1903,27 +1901,57 @@
 
     const features = data.features;
     if (!Array.isArray(features)) return [];
-    if (data.exceededTransferLimit) console.warn('[queryEquationPoints] exceededTransferLimit — results truncated.');
 
-    return features.map(f => {
+    // Group into pairs by routeId + fromMeasure rounded to 3 decimal places.
+    // Sort each group by fromMeasure ASC so first = lower measure.
+    const groups = new Map();
+    for (const f of features) {
       const a = f.attributes ?? {};
-      return {
+      const routeNum = (a.routeId ?? '').match(/\d{3}/)?.[0] ?? a.routeId ?? '';
+      const key = `${routeNum}_${Math.round((a.fromMeasure ?? 0) * 1000)}`;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(a);
+    }
+
+    const pairs = [];
+    for (const group of groups.values()) {
+      group.sort((a, b) => (a.fromMeasure ?? 0) - (b.fromMeasure ?? 0));
+      const first = group[0];
+      const second = group[1] ?? null;
+
+      pairs.push({
         type:        'equation',
-        name:        String(a.OBJECTID),
-        desc:        a.hslDescription ?? '',
-        routeId:     a.routeId,
-        arMeasure:   a.fromMeasure,
-        county:      a.County      ?? '',
-        district:    a.District_Code != null ? String(a.District_Code).padStart(2, '0') : '',
-        routeSuffix: '',
-        pmPrefix:    '.',
-        pmSuffix:    a.PMSuffix    ?? '.',
-        pmMeasure:   a.PMMeasure   ?? '',
-        odMeasure:   a.ODMeasure   != null ? String(a.ODMeasure) : '',
-        startDate:   null,
-        endDate:     null
-      };
-    });
+        name:        `eq1_${first.routeId}_${first.fromMeasure}`,
+        desc:        first.hslDescription ?? '',
+        routeId:     first.routeId,
+        arMeasure:   first.fromMeasure,
+        county:      first.County      ?? '',
+        pmPrefix:    first.PMPrefix    ?? '',
+        pmSuffix:    first.PMSuffix    ?? '.',
+        pmMeasure:   first.PMMeasure   ?? '',
+        odMeasure:   first.ODMeasure   != null ? String(first.ODMeasure) : '',
+        district:    first.District_Code != null ? String(first.District_Code).padStart(2, '0') : '',
+        isSecondEq:  false
+      });
+
+      if (second) {
+        pairs.push({
+          type:        'equation',
+          name:        `eq2_${second.routeId}_${second.fromMeasure}`,
+          desc:        '',
+          routeId:     second.routeId,
+          arMeasure:   second.fromMeasure,
+          county:      second.County      ?? '',
+          pmPrefix:    second.PMPrefix    ?? '',
+          pmSuffix:    'E',
+          pmMeasure:   second.PMMeasure   ?? '',
+          odMeasure:   second.ODMeasure   != null ? String(second.ODMeasure) : '',
+          district:    second.District_Code != null ? String(second.District_Code).padStart(2, '0') : '',
+          isSecondEq:  true
+        });
+      }
+    }
+    return pairs;
   }
 
   async function queryRampDescriptions(allPairs) {
@@ -1979,9 +2007,9 @@
 
     const results = allPairs.map(p => ({
       name:        p.name,
-      featureType: (p.type === 'landmark' || p.type === 'equation') ? 'H' : p.type === 'intersection' ? 'I' : 'R',
-      isEquation:  p.type === 'equation',
+      featureType: p.type === 'equation' ? 'H' : p.type === 'landmark' ? 'H' : p.type === 'intersection' ? 'I' : 'R',
       isCross:     p.isCross ?? false,
+      isSecondEq:  p.isSecondEq ?? false,
       desc:        p.type === 'ramp' ? (descMap.get(p.name) ?? '') : p.desc,
       hwyGroup:    hwyMap.get(p.name)  ?? '',
       cityCode:    cityMap.get(p.name) ?? '',
@@ -2124,14 +2152,17 @@
   // Returns an array of OD length strings indexed to results ('' when not computable)
   function computeLengths(results) {
     return results.map((p, i) => {
+      if (p.isSecondEq) return '';
       const curOd = parseFloat(p.odMeasure);
+      // Exclude second equation points from nextEntry candidates so eq point 1
+      // measures distance to the next real record, not to its paired eq point 2.
+      const rem = results.slice(i + 1).filter(r => !r.isSecondEq);
       let nextEntry;
       if (p.pmSuffix === 'R') {
-        nextEntry = results.slice(i + 1).find(r => r.featureType !== 'R' && r.featureType !== 'I' && r.pmSuffix !== 'L');
+        nextEntry = rem.find(r => r.featureType !== 'R' && r.featureType !== 'I' && r.pmSuffix !== 'L');
       } else if (p.pmSuffix === 'L') {
-        nextEntry = results.slice(i + 1).find(r => r.featureType !== 'R' && r.featureType !== 'I' && r.pmSuffix !== 'R');
+        nextEntry = rem.find(r => r.featureType !== 'R' && r.featureType !== 'I' && r.pmSuffix !== 'R');
       } else {
-        const rem = results.slice(i + 1);
         const firstNR = rem.find(r => r.featureType !== 'R' && r.featureType !== 'I');
         nextEntry = (firstNR?.pmSuffix === 'R' || firstNR?.pmSuffix === 'L')
           ? rem.find(r => r.featureType !== 'R' && r.featureType !== 'I' && r.pmSuffix !== 'R' && r.pmSuffix !== 'L')
@@ -2143,46 +2174,20 @@
   }
 
   // Renders a single result row as an HTML <li> string
-  function renderItem(p, idx, secondEq, lengths) {
+  function renderItem(p, idx, lengths) {
     const length = lengths[idx];
-    if (p.isEquation && !secondEq.has(idx)) {
-      return `<li class="ramp-item ramp-col-template">
-         <span></span>
-         <span></span>
-         <span></span>
-         <span style="text-align:right;">${p.pmSuffix && p.pmSuffix !== '.' ? esc(p.pmSuffix) : ''}</span>
-         <span>${esc(padMeasure(p.pmMeasure))}</span>
-         <span style="grid-column: span 2; white-space: nowrap;">EQUATES TO</span>
-         <span></span>
-         <span></span>
-       </li>`;
-    }
     return `<li class="ramp-item ramp-col-template">
          <span>${p.district    ? esc(p.district)        : ''}</span>
          <span>${p.county      ? esc(String(p.county)) : ''}</span>
          <span>${p.cityCode    ? esc(p.cityCode)        : ''}</span>
          <span style="text-align:right;">${p.pmPrefix && p.pmPrefix !== '.' ? esc(p.pmPrefix) : ''}</span>
-         <span>${esc(padMeasure(p.pmMeasure))}${secondEq.has(idx) ? ' E' : ''}</span>
+         <span style="text-align:center;">${esc(padMeasure(p.pmMeasure))}</span>
+         <span style="justify-self:start;">${p.pmSuffix && p.pmSuffix !== '.' ? esc(p.pmSuffix) : ''}</span>
          <span>${p.hwyGroup    ? esc(p.hwyGroup)        : ''}</span>
          <span>${p.featureType}</span>
-         <span style="display:block;text-align:center;">${p.isCross ? '*P*' : p.featureType !== 'R' && p.featureType !== 'I' && (!p.isEquation || secondEq.has(idx)) && length !== '' ? padMeasure(length) : ''}</span>
+         <span style="display:block;text-align:center;">${p.isCross ? '*P*' : p.featureType !== 'R' && p.featureType !== 'I' && length !== '' ? padMeasure(length) : ''}</span>
          <span>${p.desc        ? esc(p.desc)            : ''}</span>
        </li>`;
-  }
-
-  // Returns a Set of _allResults indices that are the 2nd equation point of their pair.
-  // Equation points always come in pairs; counted independently per pmSuffix group.
-  function computeSecondEqIndices(results) {
-    const secondEq     = new Set();
-    const countByGroup = new Map();
-    results.forEach((p, i) => {
-      if (!p.isEquation) return;
-      const key = p.pmSuffix ?? '.';
-      const cnt = (countByGroup.get(key) ?? 0) + 1;
-      countByGroup.set(key, cnt);
-      if (cnt % 2 === 0) secondEq.add(i);
-    });
-    return secondEq;
   }
 
   function renderPage() {
@@ -2230,15 +2235,15 @@
          <span>City</span>
          <span></span>
          <span>PM</span>
+         <span></span>
          <span>HG</span>
          <span>F</span>
          <span>DISTANCE TO<br>NEXT POINT</span>
          <span>Description</span>
        </div>`;
 
-    const secondEq = computeSecondEqIndices(_allResults);
     const lengths  = computeLengths(_allResults);
-    const items = pageSlice.map((p, i) => renderItem(p, start + i, secondEq, lengths)).join('');
+    const items = pageSlice.map((p, i) => renderItem(p, start + i, lengths)).join('');
 
     const pageFooter = totalPages > 1
       ? `<div class="page-info">Page ${page + 1} of ${totalPages}</div>`
@@ -2291,15 +2296,15 @@
          <span>City</span>
          <span></span>
          <span>PM</span>
+         <span></span>
          <span>HG</span>
          <span>F</span>
          <span>DISTANCE TO<br>NEXT POINT</span>
          <span>Description</span>
        </div>`;
 
-    const secondEq = computeSecondEqIndices(_allResults);
     const lengths  = computeLengths(_allResults);
-    const items = _allResults.map((p, i) => renderItem(p, i, secondEq, lengths)).join('');
+    const items = _allResults.map((p, i) => renderItem(p, i, lengths)).join('');
 
     const generatedFooter = `<div class="generated-on">Generated on ${esc(_generatedOn)}</div>`;
 
@@ -2311,34 +2316,21 @@
   function exportToExcel() {
     if (_allResults.length === 0) return;
 
-    const headers  = ['Dist', 'County', 'City', '', 'PM', 'HG', 'F', 'Distance To Next Point', 'Description'];
-    const secondEq = computeSecondEqIndices(_allResults);
+    const headers  = ['Dist', 'County', 'City', '', 'PM', '', 'HG', 'F', 'Distance To Next Point', 'Description'];
     const lengths  = computeLengths(_allResults);
 
     const rows = _allResults.map((p, i) => {
       const length = lengths[i];
-      if (p.isEquation && !secondEq.has(i)) {
-        return [
-          '',
-          '',
-          '',
-          (p.pmSuffix && p.pmSuffix !== '.') ? p.pmSuffix : '',
-          padMeasure(p.pmMeasure),
-          'EQUATES TO',
-          '',
-          '',
-          ''
-        ];
-      }
       return [
         p.district    ?? '',
         p.county      ?? '',
         p.cityCode    ?? '',
         (p.pmPrefix && p.pmPrefix !== '.') ? p.pmPrefix : '',
-        padMeasure(p.pmMeasure) + (secondEq.has(i) ? 'E' : ''),
+        padMeasure(p.pmMeasure),
+        (p.pmSuffix && p.pmSuffix !== '.') ? p.pmSuffix : '',
         p.hwyGroup    ?? '',
         p.featureType ?? '',
-        p.isCross ? '*P*' : p.featureType !== 'R' && p.featureType !== 'I' && (!p.isEquation || secondEq.has(i)) && length !== '' ? padMeasure(length) : '',
+        p.isCross ? '*P*' : p.featureType !== 'R' && p.featureType !== 'I' && length !== '' ? padMeasure(length) : '',
         p.desc        ?? ''
       ];
     });
