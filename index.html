@@ -1061,7 +1061,24 @@
         result.push(pairs[i++]);
       }
     }
-    return result;
+
+    // Ensure each eq2 record immediately follows its eq1 partner.
+    // This can get split when the two records have different arMeasures (independent alignments).
+    const eq2ByPairId = new Map();
+    for (const p of result) {
+      if (p.type === 'equation' && p.isSecondEq) eq2ByPairId.set(p.eqPairId, p);
+    }
+    if (eq2ByPairId.size === 0) return result;
+
+    const ordered = [];
+    for (const p of result) {
+      if (p.type === 'equation' && p.isSecondEq) continue; // will be inserted after its eq1
+      ordered.push(p);
+      if (p.type === 'equation' && !p.isSecondEq && eq2ByPairId.has(p.eqPairId)) {
+        ordered.push(eq2ByPairId.get(p.eqPairId));
+      }
+    }
+    return ordered;
   }
 
   function pickBest(locs) {
@@ -1914,13 +1931,14 @@
     }
 
     const pairs = [];
-    for (const group of groups.values()) {
+    for (const [key, group] of groups.entries()) {
       group.sort((a, b) => (a.fromMeasure ?? 0) - (b.fromMeasure ?? 0));
       const first = group[0];
       const second = group[1] ?? null;
 
       pairs.push({
         type:        'equation',
+        eqPairId:    key,
         name:        `eq1_${first.routeId}_${first.fromMeasure}`,
         desc:        first.hslDescription ?? '',
         routeId:     first.routeId,
@@ -1937,6 +1955,7 @@
       if (second) {
         pairs.push({
           type:        'equation',
+          eqPairId:    key,
           name:        `eq2_${second.routeId}_${second.fromMeasure}`,
           desc:        '',
           routeId:     second.routeId,
@@ -2182,8 +2201,8 @@
          <span>${p.cityCode    ? esc(p.cityCode)        : ''}</span>
          <span style="text-align:right;">${p.pmPrefix && p.pmPrefix !== '.' ? esc(p.pmPrefix) : ''}</span>
          <span style="text-align:center;">${esc(padMeasure(p.pmMeasure))}</span>
-         <span style="justify-self:start;">${p.pmSuffix && p.pmSuffix !== '.' ? esc(p.pmSuffix) : ''}</span>
-         <span>${p.hwyGroup    ? esc(p.hwyGroup)        : ''}</span>
+         <span style="justify-self:start;">${p.pmSuffix === 'E' ? 'E' : ''}</span>
+         <span>${p.pmSuffix === 'L' ? 'L' : p.hwyGroup ? esc(p.hwyGroup) : ''}</span>
          <span>${p.featureType}</span>
          <span style="display:block;text-align:center;">${p.isCross ? '*P*' : p.featureType !== 'R' && p.featureType !== 'I' && length !== '' ? padMeasure(length) : ''}</span>
          <span>${p.desc        ? esc(p.desc)            : ''}</span>
@@ -2327,8 +2346,8 @@
         p.cityCode    ?? '',
         (p.pmPrefix && p.pmPrefix !== '.') ? p.pmPrefix : '',
         padMeasure(p.pmMeasure),
-        (p.pmSuffix && p.pmSuffix !== '.') ? p.pmSuffix : '',
-        p.hwyGroup    ?? '',
+        p.pmSuffix === 'E' ? 'E' : '',
+        p.pmSuffix === 'L' ? 'L' : (p.hwyGroup ?? ''),
         p.featureType ?? '',
         p.isCross ? '*P*' : p.featureType !== 'R' && p.featureType !== 'I' && length !== '' ? padMeasure(length) : '',
         p.desc        ?? ''
