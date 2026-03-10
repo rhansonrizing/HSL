@@ -889,13 +889,11 @@
     clearResults();
 
     try {
-      const [[rampPairs, landmarkPairs, intersectionPairs, equationPairs], direction] = await Promise.all([
-        Promise.all([
-          queryAttributeSet(segments, district),
-          queryLandmarks(segments, routeSuffix, district),
-          queryIntersections(segments, district),
-          queryEquationPoints(segments, district),
-        ]),
+      const [rampPairs, landmarkPairs, intersectionPairs, equationPairs, direction] = await Promise.all([
+        queryAttributeSet(segments, district),
+        queryLandmarks(segments, routeSuffix, district),
+        queryIntersections(segments, district),
+        queryEquationPoints(segments, district),
         queryRouteDirection(routeNum)
       ]);
       _routeLabel    = paddedRoute;
@@ -1121,8 +1119,11 @@
     clearResults();
 
     try {
-      const [[rampPairs, landmarkPairs, intersectionPairs, equationPairs], direction] = await Promise.all([
-        Promise.all([queryAttributeSet(segments), queryLandmarks(segments, routeSuffix), queryIntersections(segments), queryEquationPoints(segments)]),
+      const [rampPairs, landmarkPairs, intersectionPairs, equationPairs, direction] = await Promise.all([
+        queryAttributeSet(segments),
+        queryLandmarks(segments, routeSuffix),
+        queryIntersections(segments),
+        queryEquationPoints(segments),
         queryRouteDirection(routeNum)
       ]);
       _routeLabel    = routeNum;
@@ -1277,8 +1278,11 @@
         return;
       }
 
-      const [[rampPairs, landmarkPairs, intersectionPairs, equationPairs], direction] = await Promise.all([
-        Promise.all([queryAttributeSet(segments), queryLandmarks(segments, from.routeSuffix), queryIntersections(segments), queryEquationPoints(segments)]),
+      const [rampPairs, landmarkPairs, intersectionPairs, equationPairs, direction] = await Promise.all([
+        queryAttributeSet(segments),
+        queryLandmarks(segments, from.routeSuffix),
+        queryIntersections(segments),
+        queryEquationPoints(segments),
         queryRouteDirection(from.routeNum.padStart(3, '0'))
       ]);
       _routeLabel    = from.routeNum.padStart(3, '0');
@@ -2047,48 +2051,10 @@
   }
 
   // Returns a Map of name → OD measure.
-  // Landmarks use ODMeasure from layer 123 directly (pre-seeded).
-  // Intersections translate from Postmile (layer 3) to OD (layer 5).
-  async function translateToOD(allPairs) {
-    const resultMap = new Map(allPairs.map(p => [p.name, p.odMeasure ?? '']));
-
-    const pmPairs = allPairs.filter(p => p.pmRouteId);
-    if (pmPairs.length === 0) return resultMap;
-
-    const body = new URLSearchParams({
-      locations:             JSON.stringify(pmPairs.map(p => ({ routeId: p.pmRouteId, measure: Number(p.pmMeasure) }))),
-      targetNetworkLayerIds: JSON.stringify([5]),
-      ...versionParam(),
-      f:     'json',
-      token: _token
-    });
-    let resp, data;
-    try {
-      resp = await fetch(`${CONFIG.mapServiceUrl}/exts/LRServer/networkLayers/3/translate`, {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body:    body.toString()
-      });
-      data = await resp.json();
-    } catch (e) {
-      console.error('[translateToOD] error:', e.message);
-      return resultMap;
-    }
-    if (data.error) {
-      const code = data.error.code;
-      if (code === 498 || code === 499) { _token = null; login(); }
-      console.error(`[translateToOD] API error ${code}: ${data.error.message}`);
-      return resultMap;
-    }
-    pmPairs.forEach((p, i) => {
-      const locs = data.locations?.[i]?.translatedLocations;
-      const best = Array.isArray(locs)
-        ? (locs.find(l => l.status === 'esriLocatingOK') ?? locs[0])
-        : null;
-      resultMap.set(p.name, best?.measure != null ? Number(best.measure).toFixed(6) : '');
-    });
-
-    return resultMap;
+  // OD measures are pre-populated on pairs that carry them (landmarks, equation points).
+  // Types without an OD measure (ramps, intersections) will have an empty string.
+  function translateToOD(allPairs) {
+    return new Map(allPairs.map(p => [p.name, p.odMeasure ?? '']));
   }
 
   // Returns a Map of name → fieldName value for range-based event layers (e.g. 116, 74)
@@ -2379,12 +2345,12 @@
   function esc(str) {
     return str
       .replace(/&/g, '&amp;').replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+      .replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
   }
 
   function getDateFilter() {
     const val = document.getElementById('refDate').value; // "YYYY-MM-DD"
-    if (!val) return '';
+    if (!val || !/^\d{4}-\d{2}-\d{2}$/.test(val)) return '';
     const ts = `TIMESTAMP '${val} 00:00:00'`;
     return ` AND InventoryItemStartDate <= ${ts}` +
            ` AND (InventoryItemEndDate IS NULL OR InventoryItemEndDate > ${ts})`;
@@ -2392,7 +2358,7 @@
 
   function getIntersectionDateFilter() {
     const val = document.getElementById('refDate').value;
-    if (!val) return '';
+    if (!val || !/^\d{4}-\d{2}-\d{2}$/.test(val)) return '';
     const ts = `TIMESTAMP '${val} 00:00:00'`;
     return ` AND Int_Geometry_Begin_Date <= ${ts}` +
            ` AND (Int_Geometry_End_Date IS NULL OR Int_Geometry_End_Date > ${ts})`;
