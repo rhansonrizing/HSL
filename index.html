@@ -889,9 +889,10 @@
     clearResults();
 
     try {
-      const [rampPairs, landmarkPairs, intersectionPairs, equationPairs, direction] = await Promise.all([
+      const [rampPairs, landmarkPairs, routeBreakPairs, intersectionPairs, equationPairs, direction] = await Promise.all([
         queryAttributeSet(segments, district),
         queryLandmarks(segments, routeSuffix, district),
+        queryRouteBreaks(segments, routeSuffix, district),
         queryIntersections(segments, district),
         queryEquationPoints(segments, district),
         queryRouteDirection(routeNum)
@@ -899,7 +900,7 @@
       _routeLabel    = paddedRoute;
       _directionFrom = direction.from;
       _directionTo   = direction.to;
-      const allPairs = sortWithIndependentAlignments([...rampPairs, ...landmarkPairs, ...intersectionPairs, ...equationPairs]);
+      const allPairs = sortWithIndependentAlignments([...rampPairs, ...landmarkPairs, ...routeBreakPairs, ...intersectionPairs, ...equationPairs]);
       if (allPairs.length === 0) { showRampResults('none'); return; }
       await queryRampDescriptions(allPairs);
     } catch (err) {
@@ -1119,9 +1120,10 @@
     clearResults();
 
     try {
-      const [rampPairs, landmarkPairs, intersectionPairs, equationPairs, direction] = await Promise.all([
+      const [rampPairs, landmarkPairs, routeBreakPairs, intersectionPairs, equationPairs, direction] = await Promise.all([
         queryAttributeSet(segments),
         queryLandmarks(segments, routeSuffix),
+        queryRouteBreaks(segments, routeSuffix),
         queryIntersections(segments),
         queryEquationPoints(segments),
         queryRouteDirection(routeNum)
@@ -1129,7 +1131,7 @@
       _routeLabel    = routeNum;
       _directionFrom = direction.from;
       _directionTo   = direction.to;
-      const allPairs = sortWithIndependentAlignments([...rampPairs, ...landmarkPairs, ...intersectionPairs, ...equationPairs]);
+      const allPairs = sortWithIndependentAlignments([...rampPairs, ...landmarkPairs, ...routeBreakPairs, ...intersectionPairs, ...equationPairs]);
       if (allPairs.length === 0) { showRampResults('none'); return; }
       await queryRampDescriptions(allPairs);
     } catch (err) {
@@ -1278,9 +1280,10 @@
         return;
       }
 
-      const [rampPairs, landmarkPairs, intersectionPairs, equationPairs, direction] = await Promise.all([
+      const [rampPairs, landmarkPairs, routeBreakPairs, intersectionPairs, equationPairs, direction] = await Promise.all([
         queryAttributeSet(segments),
         queryLandmarks(segments, from.routeSuffix),
+        queryRouteBreaks(segments, from.routeSuffix),
         queryIntersections(segments),
         queryEquationPoints(segments),
         queryRouteDirection(from.routeNum.padStart(3, '0'))
@@ -1289,7 +1292,7 @@
       _directionFrom = direction.from;
       _directionTo   = direction.to;
 
-      const allPairs = sortWithIndependentAlignments([...rampPairs, ...landmarkPairs, ...intersectionPairs, ...equationPairs]);
+      const allPairs = sortWithIndependentAlignments([...rampPairs, ...landmarkPairs, ...routeBreakPairs, ...intersectionPairs, ...equationPairs]);
 
       if (allPairs.length === 0) {
         showRampResults('none');
@@ -1879,6 +1882,84 @@
     return Array.from(nameMap.values());
   }
 
+  async function queryRouteBreaks(segments, routeSuffix, district = null) {
+    const segClauses = segments.map(({ fromBest, toBest }) => {
+      const fromM    = Math.min(fromBest.measure, toBest.measure) - 0.005;
+      const toM      = Math.max(fromBest.measure, toBest.measure) + 0.005;
+      const routeNum = fromBest.routeId.match(/\d{3}/)?.[0] ?? null;
+      return routeNum
+        ? `(RouteNum = '${routeNum}' AND ARMeasure >= ${fromM} AND ARMeasure <= ${toM})`
+        : `(RouteID = '${fromBest.routeId}' AND ARMeasure >= ${fromM} AND ARMeasure <= ${toM})`;
+    });
+
+    const uniqueClauses = [...new Set(segClauses)];
+
+    const isSuffix = routeSuffix && routeSuffix !== '.';
+    const suffixFilter = isSuffix
+      ? ` AND RouteSuffix = '${routeSuffix}'`
+      : ` AND (RouteSuffix IS NULL OR RouteSuffix <> 'S')`;
+
+    const dateFilter     = getDateFilter();
+    const districtFilter = district != null ? ` AND District = ${district}` : '';
+    const where = uniqueClauses.length === 1
+      ? uniqueClauses[0].slice(1, -1) + suffixFilter + districtFilter + ' AND LRSToDate IS NULL' + dateFilter
+      : `(${uniqueClauses.join(' OR ')})${suffixFilter}${districtFilter} AND LRSToDate IS NULL${dateFilter}`;
+
+    const body = new URLSearchParams({
+      where,
+      outFields:      'Route_Break_Type,RouteID,ARMeasure,County,RouteSuffix,PMPrefix,PMSuffix,PMMeasure,ODMeasure,District,InventoryItemStartDate,InventoryItemEndDate',
+      orderByFields:  'ARMeasure ASC',
+      returnGeometry: 'false',
+      ...versionParam(),
+      f:              'json',
+      token:          _token
+    });
+
+    let resp, data;
+    try {
+      resp = await fetch(`${CONFIG.mapServiceUrl}/133/query`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body:    body.toString()
+      });
+      data = await resp.json();
+    } catch (e) {
+      console.error('[queryRouteBreaks] error:', e.message);
+      return [];
+    }
+
+    if (data.error) {
+      const code = data.error.code;
+      if (code === 498 || code === 499) { _token = null; login(); return []; }
+      console.error(`[queryRouteBreaks] API error ${code}: ${data.error.message}`);
+      return [];
+    }
+
+    const features = data.features;
+    if (!Array.isArray(features)) return [];
+    if (data.exceededTransferLimit) console.warn('[queryRouteBreaks] exceededTransferLimit — results truncated. Narrow the measure range.');
+
+    return features.map(f => {
+      const a = f.attributes ?? {};
+      return {
+        type:        'routebreak',
+        name:        `rb_${a.RouteID}_${a.ARMeasure}`,
+        desc:        a.Route_Break_Type ?? '',
+        routeId:     a.RouteID,
+        arMeasure:   a.ARMeasure,
+        county:      a.County      ?? '',
+        routeSuffix: a.RouteSuffix ?? '',
+        pmPrefix:    a.PMPrefix    ?? '',
+        pmSuffix:    a.PMSuffix    ?? '.',
+        pmMeasure:   a.PMMeasure   ?? '',
+        odMeasure:   a.ODMeasure != null ? String(a.ODMeasure) : '',
+        district:    a.District != null ? String(a.District).padStart(2, '0') : '',
+        startDate:   a.InventoryItemStartDate ?? null,
+        endDate:     a.InventoryItemEndDate   ?? null
+      };
+    });
+  }
+
   async function queryEquationPoints(segments, district = null) {
     const segClauses = segments.map(({ fromBest, toBest }) => {
       const fromM = Math.min(fromBest.measure, toBest.measure) - 0.005;
@@ -2030,7 +2111,7 @@
 
     const results = allPairs.map(p => ({
       name:        p.name,
-      featureType: p.type === 'equation' ? 'H' : p.type === 'landmark' ? 'H' : p.type === 'intersection' ? 'I' : 'R',
+      featureType: p.type === 'equation' ? 'H' : p.type === 'landmark' ? 'H' : p.type === 'routebreak' ? 'H' : p.type === 'intersection' ? 'I' : 'R',
       isCross:     p.isCross ?? false,
       isSecondEq:  p.isSecondEq ?? false,
       desc:        p.type === 'ramp' ? (descMap.get(p.name) ?? '') : p.desc,
